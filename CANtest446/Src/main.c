@@ -330,11 +330,37 @@ int main(void)
 	float iref;
 	float vref;
 
-	iref = 1;
-	vref = 100;
+	iref = 2;
+	vref = 300;
 
-	memcpy((void*)TxData[0], (unsigned char*) (&iref), 4);
-	memcpy((void*)TxData[4], (unsigned char*) (&vref), 4);
+	TxData[0] = 0x00;
+	TxData[1] = 0x00;
+	TxData[2] = 0x00;
+	TxData[3] = 0x00;
+	TxData[4] = 0x00;
+	TxData[5] = 0x00;
+	TxData[6] = 0x00;
+	TxData[7] = 0x00;
+/*
+	uint8_t data1[sizeof(float)];
+	uint8_t data2[sizeof(float)];
+	memcpy((void*)data1, (const void*)(&iref), 4);
+	memcpy((void*)data2, (const void*)(&vref), 4);
+
+	TxData[0] = data1[0];
+	TxData[1] = data1[1];
+	TxData[2] = data1[2];
+	TxData[3] = data1[3];
+	*/
+//	memcpy((void*)TxData[0], (const void*)(&data1), 4);
+//	memcpy((void*)TxData[4], (const void*)(&data2), 4);
+
+
+	memcpy((void*)TxData[0], (unsigned char *) (&iref), 4);
+	memcpy((void*)TxData[4], (unsigned char *) (&vref), 4);
+	//TxData[0] = iref;
+	//TxData[4] = vref;
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
