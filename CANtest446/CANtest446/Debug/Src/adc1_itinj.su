@@ -1,0 +1,3 @@
+adc1_itinj.c:60:6:HAL_ADCEx_InjectedConvCpltCallback	16	static
+adc1_itinj.c:90:6:InitADCmodule	8	static
+adc1_itinj.c:115:5:GetADCChannelValue	0	static

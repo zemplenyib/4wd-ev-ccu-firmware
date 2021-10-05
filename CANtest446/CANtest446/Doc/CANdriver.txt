@@ -1,0 +1,14 @@
+HAL CAN driver has been redesigned with new API.
+
+Please find below a short migration guide:
+
+Fields of CAN_InitTypeDef structure are renamed: SJW to SyncJumpWidth, BS1 to TimeSeg1, BS2 to TimeSeg2, ABOM to AutoBusOff, AWUM to AutoWakeUp, NART to AutoRetransmission (inversed), RFLM to ReceiveFifoLocked and TXFP to TransmitFifoPriority
+HAL_CAN_Init() is split into both HAL_CAN_Init() and HAL_CAN_Start()
+HAL_CAN_Transmit() is replaced by HAL_CAN_AddTxMessage() to place Tx request, then HAL_CAN_GetTxMailboxesFreeLevel() for polling until completion
+HAL_CAN_Transmit_IT() is replaced by HAL_CAN_ActivateNotification() to enable transmission with interrupt mode, then HAL_CAN_AddTxMessage() to place Tx request
+HAL_CAN_Receive() is replaced by HAL_CAN_GetRxFifoFillLevel() for polling until reception, then HAL_CAN_GetRxMessage() to get Rx message
+HAL_CAN_Receive_IT() is replaced by HAL_CAN_ActivateNotification() to enable reception with interrupt mode, then HAL_CAN_GetRxMessage() in the receive callback to get Rx message
+HAL_CAN_Sleep() is renamed to HAL_CAN_RequestSleep()
+HAL_CAN_TxCpltCallback() is split into HAL_CAN_TxMailbox0CompleteCallback(), HAL_CAN_TxMailbox1CompleteCallback() and HAL_CAN_TxMailbox2CompleteCallback()
+HAL_CAN_RxCpltCallback() is split into HAL_CAN_RxFifo0MsgPendingCallback() and HAL_CAN_RxFifo1MsgPendingCallback()
+More complete 'how to use the new driver' is detailed in the driver header section itself.

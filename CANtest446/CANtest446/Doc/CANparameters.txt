@@ -1,0 +1,4 @@
+Baud Rate	500.000 kBaud
+Sample Point	87.5%
+BTR0		0x00
+BTR1		0x1C
