@@ -61,6 +61,37 @@
 #define	CAN_RXID_REM2	0x622			// CAN Arb. ID for Receiving REM2
 #define	CAN_RXID_OPMR	0x623			// CAN Arb. ID for Receiving Op.Mode
 
+/* My code from here */
+#define LED1 GPIO_PIN_8
+#define LED2 GPIO_PIN_6
+#define LED3 GPIO_PIN_2
+#define LED4 GPIO_PIN_1
+
+#define CAN_MESSAGETYPE_COMMAND 0x00
+#define CAN_MESSAGETYPE_CONFIG 0x05
+#define CAN_MESSAGETYPE_REFERENCE 0x02
+
+#define CMD_DISCOVER 0x90
+#define CMD_DRIVE_STATE 0x50
+#define CMD_MODE 0x10
+#define CMD_VSRV 0x20
+#define CMD_HVDC 0x30
+
+#define VSRV_ON 0x01
+#define VSRV_OFF 0x02
+#define HVDC_ON 0x01
+#define HVDC_OFF 0x02
+
+#define MODE_IDLE 0x11
+#define MODE_DRIVE 0x12
+
+#define STATE_STOPPED 0x00
+#define STATE_STARTED 0x01
+
+#define CFG_CONTROL_MODE 0x01
+#define CONTROL_TORQUE 0x01
+#define CONTROL_VELOCITY 0x02
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -108,6 +139,8 @@ TIM_OC_InitTypeDef sConfigOC;			// Config structure for setting TIM3
 static uint8_t operMode = OPMODE_NUL;	// Operation Mode
 static uint8_t opModeRecv = OPMODE_NUL;	// Operation Mode Received
 
+
+/* My code from here */
 CAN_TxHeaderTypeDef   TxHeader;
 CAN_RxHeaderTypeDef   RxHeader;
 uint8_t               TxData[8];
@@ -134,6 +167,10 @@ static void MX_TIM3_Init(void);
 void Operate3colorLED(int led, uint16_t intens);
 void SendOperModeToCAN(void);
 void UpdateOperModeLEDs(void);
+
+/* My code from here */
+void CAN1_Tx(uint8_t *data, uint8_t DLC, uint16_t ID);
+
 
 /* USER CODE END PFP */
 
@@ -204,6 +241,93 @@ int main(void)
 
 	HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
 
+	/* My code from here */
+
+	uint16_t class;
+	uint16_t device;
+	uint16_t type;
+
+	uint8_t TxData[8];
+	uint16_t id;
+
+    /* Turn on VSRV */
+	class = 0x0E;
+    device = 0x01;
+    type = 0x0;
+    id = (class << 7) | (device << 3) | (type); //id = 0x708;
+
+    TxData[0] = CMD_VSRV;
+    TxData[1] = VSRV_ON;
+	CAN1_Tx(TxData, 2, id);
+	HAL_Delay(1500);
+
+    /* Turn on HVDC */
+	class = 0x0E;
+    device = 0x01;
+    type = 0x0;
+    id = (class << 7) | (device << 3) | (type); //id = 0x708;
+
+    TxData[0] = CMD_HVDC;
+    TxData[1] = HVDC_ON;
+	CAN1_Tx(TxData, 2, id);
+	HAL_Delay(3000);
+
+	/* CMD discover */
+	class = 0x0B;
+	device = 0x02; /* FL */
+	type = 0x0;
+    id = (class << 7) | (device << 3) | (type);
+
+	TxData[0] = CMD_DISCOVER;
+	TxData[1] = 0x00;
+	CAN1_Tx(TxData,2,id);
+	HAL_Delay(100);
+
+	/* CFG_CONTROL_MODE */
+	class  = 0x0B;
+    device = 0x02;
+	type   = CAN_MESSAGETYPE_CONFIG;
+	id = (class << 7) | (device << 3) | (type);
+
+	TxData[0] = CFG_CONTROL_MODE;
+	TxData[1] = 0x00;
+	TxData[2] = 0x00;
+	TxData[3] = 0x00;
+	TxData[4] = CONTROL_VELOCITY;
+	TxData[5] = 0x00;
+	TxData[6] = 0x00;
+	TxData[7] = 0x00;
+	CAN1_Tx(TxData,8,id);
+	HAL_Delay(100);
+
+	/* MODE_DRIVE */
+	class  = 0x0B;
+	device = 0x02;
+	type   = CAN_MESSAGETYPE_COMMAND;
+	id = (class << 7) | (device << 3) | (type);
+
+	TxData[0] = CMD_MODE;
+	TxData[1] = 0x00;
+	TxData[2] = MODE_DRIVE;
+	TxData[3] = 0x00;
+	CAN1_Tx(TxData,4,id);
+	HAL_Delay(100);
+
+
+	/* STATE_STARTED */
+	class  = 0x0B;
+	device = 0x02;
+	type   = CAN_MESSAGETYPE_COMMAND;
+	id = (class << 7) | (device << 3) | (type);
+
+	TxData[0] = 0x50;
+	TxData[1] = 0x00;
+	TxData[2] = 0x01;
+	TxData[3] = 0x00;
+	CAN1_Tx(TxData,4,id);
+	HAL_Delay(100);
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -217,147 +341,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	if ((status = GetADCChannelValue(POT1_CH, &value)) != 0)
-	  {
-		if (value != pot1Val)
-		  {
-			pot1Val = (uint16_t)value;
-			if ((operMode & OPMODE_REMOTE) == 0)
-			  {
-				Operate3colorLED(GREEN_LED, pot1Val);
-			  }
-			// Transmit by UART
-			sprintf(message,"$P1,%04x\r\n",pot1Val);
-			PutsTxData((uint8_t *)message,strlen(message));
-			// Transmit by CAN
-			TxHeader.StdId = CAN_TXID_POT1;
-			TxHeader.DLC = 2;
-			TxData[0] = ((uint8_t *)&pot1Val)[0];
-			TxData[1] = ((uint8_t *)&pot1Val)[1];
-			if (HAL_CAN_GetTxMailboxesFreeLevel(&hcan1) > 0)
-			  {
-				  if (HAL_CAN_AddTxMessage(&hcan1, &TxHeader, TxData, &TxMailbox) != HAL_OK)
-				  {
-					  /* Transmission request Error */
-					  Error_Handler();
-				  }
-			  }
-		  }
-	  }
-	if ((status = GetADCChannelValue(POT2_CH, &value)) != 0)
-	  {
-		if (value != pot2Val)
-		  {
-			pot2Val = (uint16_t)value;
-			if ((operMode & OPMODE_REMOTE) == 0)
-			  {
-				Operate3colorLED(RED_LED, pot2Val);
-			  }
-			// Transmit by UART
-			sprintf(message,"$P2,%04x\r\n",pot2Val);
-			PutsTxData((uint8_t *)message,strlen(message));
-			// Transmit by CAN
-			TxHeader.StdId = CAN_TXID_POT2;
-			TxHeader.DLC = 2;
-			TxData[0] = ((uint8_t *)&pot2Val)[0];
-			TxData[1] = ((uint8_t *)&pot2Val)[1];
-			if (HAL_CAN_GetTxMailboxesFreeLevel(&hcan1) > 0)
-			  {
-				  if (HAL_CAN_AddTxMessage(&hcan1, &TxHeader, TxData, &TxMailbox) != HAL_OK)
-				  {
-					  /* Transmission request Error */
-					  Error_Handler();
-				  }
-			  }
-		  }
-	  }
-	while (TestRxData() == SET)
-	  {
-		rch = GetcRxData();
-		if (inmsgPnt > 0)
-		  {
-			if (rch == CR_C)
-			  {
-				// A complete command is in the buffer
-				inmsgBuf[inmsgPnt] = NUL_C;
-				// Processing the received command
-				switch (inmsgBuf[1])
-				  {
-					case 'P':	// Potentiometer value received
-						status = sscanf ((char *)(inmsgBuf + 2),"%d,%4hx",&ch,&uarg);
-						if (status == 2)
-						  {
-							switch (ch)
-							  {
-								case 1:
-									if (uarg != rem1Val)
-									  {
-										rem1Val = uarg;
-										if ((operMode & OPMODE_REMOTE) != 0)
-											Operate3colorLED(GREEN_LED, uarg);
-									  }
-									break;
-								case 2:
-									if (uarg != rem2Val)
-									  {
-										rem2Val = uarg;
-										if ((operMode & OPMODE_REMOTE) != 0)
-											Operate3colorLED(RED_LED, uarg);
-									  }
-									break;
-								default:
-									CMDerrorSignal();
-							  }
-						  }
-						else
-							CMDerrorSignal();
-						break;
-					case 'M':	// Operation Mode received
-						status = sscanf ((char *)(inmsgBuf + 2),"%2hx",&uarg);
-						if (status == 1)
-						  {
-							opModeRecv = (uint8_t)(uarg & OPMODE_BMASK);
-							UpdateOperModeLEDs();
-							sprintf(message,"$M%2X\r\n",operMode);
-							PutsTxData((uint8_t *)message,strlen(message));
-						  }
-						break;
-					case 'I':	// Initial Values request
-						sprintf(message,"$P1,%04x\r\n",pot1Val);
-						PutsTxData((uint8_t *)message,strlen(message));
-						sprintf(message,"$P2,%04x\r\n",pot2Val);
-						PutsTxData((uint8_t *)message,strlen(message));
-						sprintf(message,"$M%02x\r\n",operMode);
-						PutsTxData((uint8_t *)message,strlen(message));
-						break;
-					default:
-						CMDerrorSignal();
-				  }
-				inmsgPnt = 0;
-			  }
-			else
-			  {
-				// Character belonging to Command
-				inmsgBuf[inmsgPnt] = rch;
-				inmsgPnt++;
-				if (inmsgPnt >= INMSG_SIZE)
-				  {
-					// Invalid command: too long
-					inmsgPnt = 0;
-				  }
-			  }
-		  }
-		else
-		  { // Waiting for Command Start character
-			if (rch == '$')
-			  {
-				// Command Start character found
-				inmsgBuf[0] = rch;
-				inmsgPnt++;
-			  }
-			// else: done nothing - data is dropped
-		  }
-	  }
+
   }
   /* USER CODE END 3 */
 }
@@ -1143,6 +1127,24 @@ void SendOperModeToCAN()
 			  Error_Handler();
 		  }
 	  }
+}
+
+/* My code from here */
+void CAN1_Tx(uint8_t *data, uint8_t DLC, uint16_t ID)
+{
+	TxHeader.DLC = DLC;
+	TxHeader.StdId = ID;
+
+	if (HAL_CAN_GetTxMailboxesFreeLevel(&hcan1) > 0){
+		//HAL_GPIO_WritePin(GPIOB, LED3, GPIO_PIN_RESET);
+		if(HAL_CAN_AddTxMessage(&hcan1,&TxHeader,data,&TxMailbox) != HAL_OK)
+		{
+			Error_Handler();
+		}
+		else {
+			HAL_GPIO_TogglePin(GPIOB, LED3);//, GPIO_PIN_SET);
+		}
+	}
 }
 
 /* USER CODE END 4 */
