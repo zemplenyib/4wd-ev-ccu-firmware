@@ -327,7 +327,14 @@ int main(void)
 	CAN1_Tx(TxData,4,id);
 	HAL_Delay(100);
 
+	float iref;
+	float vref;
 
+	iref = 1;
+	vref = 100;
+
+	memcpy((void*)TxData[0], (unsigned char*) (&iref), 4);
+	memcpy((void*)TxData[4], (unsigned char*) (&vref), 4);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -337,6 +344,19 @@ int main(void)
 	// Waiting for Control Tick signal
 	while (ctrlTick == 0) continue;
 	ctrlTick = 0;
+
+	/* My code from here */
+
+	/* Velocity Reference */
+	class  = 0x0B;
+	device = 0x02;
+	type   = CAN_MESSAGETYPE_REFERENCE;
+	id = (class << 7) | (device << 3) | (type);
+
+	CAN1_Tx(TxData,8,id);
+	HAL_GPIO_TogglePin(GPIOC, LED1);
+	HAL_Delay(100);
+
 
     /* USER CODE END WHILE */
 
