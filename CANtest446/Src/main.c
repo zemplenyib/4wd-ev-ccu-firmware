@@ -170,7 +170,7 @@ void UpdateOperModeLEDs(void);
 
 /* My code from here */
 void CAN1_Tx(uint8_t *data, uint8_t DLC, uint16_t ID);
-void CalculateReferenceMsg(float iref, float vref);
+uint8_t * CalculateReferenceMsg(float iref, float vref);
 
 
 /* USER CODE END PFP */
@@ -340,9 +340,10 @@ int main(void)
 	TxData[5] = 0x00;
 	TxData[6] = 0x00;
 	TxData[7] = 0x00;
-	iref = 2;
-	vref = 3000;
-	CalculateReferenceMsg(iref, vref);
+	iref = 1;
+	vref = 250;
+
+	*TxData = CalculateReferenceMsg(iref, vref);
 
 /*
 	uint8_t data1[sizeof(float)];
@@ -1197,18 +1198,25 @@ void CAN1_Tx(uint8_t *data, uint8_t DLC, uint16_t ID)
 	}
 }
 
-void CalculateReferenceMsg(float i, float v){
+uint8_t * CalculateReferenceMsg(float i, float v){
+	/*free(*array);
+	*array = malloc(2*sizeof(float));
+	if (*array == NULL) return;*/
+
 	uint8_t tmp[4];
+	static uint8_t array[8];
 	memcpy((void*)tmp, (unsigned char *) (&i), 4);
-	TxData[0] = tmp[3];
-	TxData[1] = tmp[2];
-	TxData[2] = tmp[1];
-	TxData[3] = tmp[0];
+	array[0] = tmp[3];
+	array[1] = tmp[2];
+	array[2] = tmp[1];
+	array[3] = tmp[0];
 	memcpy((void*)tmp, (unsigned char *) (&v), 4);
-	TxData[4] = tmp[3];
-	TxData[5] = tmp[2];
-	TxData[6] = tmp[1];
-	TxData[7] = tmp[0];
+	array[4] = tmp[3];
+	array[5] = tmp[2];
+	array[6] = tmp[1];
+	array[7] = tmp[0];
+
+	return array;
 }
 
 /* USER CODE END 4 */
