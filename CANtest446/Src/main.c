@@ -170,7 +170,6 @@ void UpdateOperModeLEDs(void);
 
 /* My code from here */
 void CAN1_Tx(uint8_t *data, uint8_t DLC, uint16_t ID);
-uint8_t * CalculateReferenceMsg(float iref, float vref);
 
 
 /* USER CODE END PFP */
@@ -332,39 +331,20 @@ int main(void)
 
 	/* Reference message */
 
-	TxData[0] = 0x00;
-	TxData[1] = 0x00;
-	TxData[2] = 0x00;
-	TxData[3] = 0x00;
-	TxData[4] = 0x00;
-	TxData[5] = 0x00;
-	TxData[6] = 0x00;
-	TxData[7] = 0x00;
-	iref = 1;
-	vref = 250;
+	iref = 0.5;
+	vref = 300;
 
-	*TxData = CalculateReferenceMsg(iref, vref);
-
-/*
-	uint8_t data1[sizeof(float)];
-	uint8_t data2[sizeof(float)];
-	memcpy((void*)data1, (const void*)(&iref), 4);
-	memcpy((void*)data2, (const void*)(&vref), 4);
-
-	TxData[0] = data1[0];
-	TxData[1] = data1[1];
-	TxData[2] = data1[2];
-	TxData[3] = data1[3];
-	*/
-//	memcpy((void*)TxData[0], (const void*)(&data1), 4);
-//	memcpy((void*)TxData[4], (const void*)(&data2), 4);
-
-
-
-	//memcpy((void*)TxData, (unsigned char *) (&vref), 4);
-	//memcpy((void*)TxData[4], (unsigned char *) (&vref), 4);
-	//TxData[0] = iref;
-	//TxData[4] = vref;
+	uint8_t tmp[4];
+	memcpy((void*)tmp, (unsigned char *) (&iref), 4);
+	TxData[0] = tmp[3];
+	TxData[1] = tmp[2];
+	TxData[2] = tmp[1];
+	TxData[3] = tmp[0];
+	memcpy((void*)tmp, (unsigned char *) (&vref), 4);
+	TxData[4] = tmp[3];
+	TxData[5] = tmp[2];
+	TxData[6] = tmp[1];
+	TxData[7] = tmp[0];
 
   /* USER CODE END 2 */
 
@@ -1198,26 +1178,6 @@ void CAN1_Tx(uint8_t *data, uint8_t DLC, uint16_t ID)
 	}
 }
 
-uint8_t * CalculateReferenceMsg(float i, float v){
-	/*free(*array);
-	*array = malloc(2*sizeof(float));
-	if (*array == NULL) return;*/
-
-	uint8_t tmp[4];
-	static uint8_t array[8];
-	memcpy((void*)tmp, (unsigned char *) (&i), 4);
-	array[0] = tmp[3];
-	array[1] = tmp[2];
-	array[2] = tmp[1];
-	array[3] = tmp[0];
-	memcpy((void*)tmp, (unsigned char *) (&v), 4);
-	array[4] = tmp[3];
-	array[5] = tmp[2];
-	array[6] = tmp[1];
-	array[7] = tmp[0];
-
-	return array;
-}
 
 /* USER CODE END 4 */
 
