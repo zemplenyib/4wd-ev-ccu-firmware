@@ -170,6 +170,7 @@ void UpdateOperModeLEDs(void);
 
 /* My code from here */
 void CAN1_Tx(uint8_t *data, uint8_t DLC, uint16_t ID);
+void CalculateReferenceMsg(float iref, float vref);
 
 
 /* USER CODE END PFP */
@@ -192,6 +193,15 @@ int main(void)
   uint8_t rch;
   int ch;
   uint16_t uarg;
+
+  /* My code from here */
+  uint16_t class;
+  uint16_t device;
+  uint16_t type;
+  uint8_t TxData[8];
+  uint16_t id;
+  float iref;
+  float vref;
 
   /* USER CODE END 1 */
 
@@ -243,14 +253,7 @@ int main(void)
 
 	/* My code from here */
 
-	uint16_t class;
-	uint16_t device;
-	uint16_t type;
-
-	uint8_t TxData[8];
-	uint16_t id;
-
-    /* Turn on VSRV */
+	/* Turn on VSRV */
 	class = 0x0E;
     device = 0x01;
     type = 0x0;
@@ -327,11 +330,7 @@ int main(void)
 	CAN1_Tx(TxData,4,id);
 	HAL_Delay(100);
 
-	float iref;
-	float vref;
-
-	iref = 2;
-	vref = 300;
+	/* Reference message */
 
 	TxData[0] = 0x00;
 	TxData[1] = 0x00;
@@ -341,6 +340,10 @@ int main(void)
 	TxData[5] = 0x00;
 	TxData[6] = 0x00;
 	TxData[7] = 0x00;
+	iref = 2;
+	vref = 3000;
+	CalculateReferenceMsg(iref, vref);
+
 /*
 	uint8_t data1[sizeof(float)];
 	uint8_t data2[sizeof(float)];
@@ -356,8 +359,9 @@ int main(void)
 //	memcpy((void*)TxData[4], (const void*)(&data2), 4);
 
 
-	memcpy((void*)TxData[0], (unsigned char *) (&iref), 4);
-	memcpy((void*)TxData[4], (unsigned char *) (&vref), 4);
+
+	//memcpy((void*)TxData, (unsigned char *) (&vref), 4);
+	//memcpy((void*)TxData[4], (unsigned char *) (&vref), 4);
 	//TxData[0] = iref;
 	//TxData[4] = vref;
 
@@ -1191,6 +1195,20 @@ void CAN1_Tx(uint8_t *data, uint8_t DLC, uint16_t ID)
 			HAL_GPIO_TogglePin(GPIOB, LED3);//, GPIO_PIN_SET);
 		}
 	}
+}
+
+void CalculateReferenceMsg(float i, float v){
+	uint8_t tmp[4];
+	memcpy((void*)tmp, (unsigned char *) (&i), 4);
+	TxData[0] = tmp[3];
+	TxData[1] = tmp[2];
+	TxData[2] = tmp[1];
+	TxData[3] = tmp[0];
+	memcpy((void*)tmp, (unsigned char *) (&v), 4);
+	TxData[4] = tmp[3];
+	TxData[5] = tmp[2];
+	TxData[6] = tmp[1];
+	TxData[7] = tmp[0];
 }
 
 /* USER CODE END 4 */
