@@ -147,6 +147,15 @@ uint8_t               TxData[8];
 uint8_t               RxData[8];
 uint32_t              TxMailbox;
 
+uint16_t class;
+uint16_t device;
+uint16_t type;
+uint16_t id;
+uint8_t TxData[8];
+uint8_t tmp[4];
+float iref;
+float vref;
+
 /*-----	Memory constants -----------------------------------------------------*/
 
 static const char greetMsg[] = "\r\n\n-- SensAct4 --\n\r";
@@ -170,6 +179,7 @@ void UpdateOperModeLEDs(void);
 
 /* My code from here */
 void CAN1_Tx(uint8_t *data, uint8_t DLC, uint16_t ID);
+void ConfigureWheelDrive(uint16_t wheel, uint16_t controlMode, uint16_t mode, uint16_t driveState);
 
 
 /* USER CODE END PFP */
@@ -193,14 +203,7 @@ int main(void)
   int ch;
   uint16_t uarg;
 
-  /* My code from here */
-  uint16_t class;
-  uint16_t device;
-  uint16_t type;
-  uint8_t TxData[8];
-  uint16_t id;
-  float iref;
-  float vref;
+
 
   /* USER CODE END 1 */
 
@@ -274,77 +277,29 @@ int main(void)
 	CAN1_Tx(TxData, 2, id);
 	HAL_Delay(3000);
 
-	/* CMD discover */
-	class = 0x0B;
-	device = 0x02; /* FL */
-	type = 0x0;
-    id = (class << 7) | (device << 3) | (type);
+	ConfigureWheelDrive(0x01, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED);
+	ConfigureWheelDrive(0x02, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED);
 
-	TxData[0] = CMD_DISCOVER;
-	TxData[1] = 0x00;
-	CAN1_Tx(TxData,2,id);
-	HAL_Delay(100);
-
-	/* CFG_CONTROL_MODE */
-	class  = 0x0B;
-    device = 0x02;
-	type   = CAN_MESSAGETYPE_CONFIG;
-	id = (class << 7) | (device << 3) | (type);
-
-	TxData[0] = CFG_CONTROL_MODE;
-	TxData[1] = 0x00;
-	TxData[2] = 0x00;
-	TxData[3] = 0x00;
-	TxData[4] = CONTROL_VELOCITY;
-	TxData[5] = 0x00;
-	TxData[6] = 0x00;
-	TxData[7] = 0x00;
-	CAN1_Tx(TxData,8,id);
-	HAL_Delay(100);
-
-	/* MODE_DRIVE */
-	class  = 0x0B;
-	device = 0x02;
-	type   = CAN_MESSAGETYPE_COMMAND;
-	id = (class << 7) | (device << 3) | (type);
-
-	TxData[0] = CMD_MODE;
-	TxData[1] = 0x00;
-	TxData[2] = MODE_DRIVE;
-	TxData[3] = 0x00;
-	CAN1_Tx(TxData,4,id);
-	HAL_Delay(100);
-
-
-	/* STATE_STARTED */
-	class  = 0x0B;
-	device = 0x02;
-	type   = CAN_MESSAGETYPE_COMMAND;
-	id = (class << 7) | (device << 3) | (type);
-
-	TxData[0] = 0x50;
-	TxData[1] = 0x00;
-	TxData[2] = 0x01;
-	TxData[3] = 0x00;
-	CAN1_Tx(TxData,4,id);
-	HAL_Delay(100);
 
 	/* Reference message */
+	class  = 0x0B;
+	type   = CAN_MESSAGETYPE_REFERENCE;
 
-	iref = 0.5;
-	vref = 300;
+	iref = 1;
+	vref = 200;
 
-	uint8_t tmp[4];
 	memcpy((void*)tmp, (unsigned char *) (&iref), 4);
-	TxData[0] = tmp[3];
-	TxData[1] = tmp[2];
-	TxData[2] = tmp[1];
-	TxData[3] = tmp[0];
+	TxData[0] = tmp[0];
+	TxData[1] = tmp[1];
+	TxData[2] = tmp[2];
+	TxData[3] = tmp[3];
 	memcpy((void*)tmp, (unsigned char *) (&vref), 4);
-	TxData[4] = tmp[3];
-	TxData[5] = tmp[2];
-	TxData[6] = tmp[1];
-	TxData[7] = tmp[0];
+	TxData[4] = tmp[0];
+	TxData[5] = tmp[1];
+	TxData[6] = tmp[2];
+	TxData[7] = tmp[3];
+
+
 
   /* USER CODE END 2 */
 
@@ -359,14 +314,17 @@ int main(void)
 	/* My code from here */
 
 	/* Velocity Reference */
-	class  = 0x0B;
-	device = 0x02;
-	type   = CAN_MESSAGETYPE_REFERENCE;
+	device = 0x01;
 	id = (class << 7) | (device << 3) | (type);
-
 	CAN1_Tx(TxData,8,id);
+	HAL_Delay(50);
+
+	device = 0x02;
+	id = (class << 7) | (device << 3) | (type);
+	CAN1_Tx(TxData,8,id);
+	HAL_Delay(50);
+
 	HAL_GPIO_TogglePin(GPIOC, LED1);
-	HAL_Delay(100);
 
 
     /* USER CODE END WHILE */
@@ -1176,6 +1134,62 @@ void CAN1_Tx(uint8_t *data, uint8_t DLC, uint16_t ID)
 			HAL_GPIO_TogglePin(GPIOB, LED3);//, GPIO_PIN_SET);
 		}
 	}
+}
+
+void ConfigureWheelDrive(uint16_t wheel, uint16_t controlMode, uint16_t mode, uint16_t driveState){
+	class = 0x0B;
+	device = wheel; /* FR = 0x01, FL = 0x02, RL = 0x03, RR = 0x04 */
+
+	/* CMD discover */
+	type = 0x0;
+	id = (class << 7) | (device << 3) | (type);
+
+	TxData[0] = CMD_DISCOVER;
+	TxData[1] = 0x00;
+	CAN1_Tx(TxData,2,id);
+	HAL_Delay(100);
+
+	/* CFG_CONTROL_MODE */
+	type   = CAN_MESSAGETYPE_CONFIG;
+	id = (class << 7) | (device << 3) | (type);
+
+	TxData[0] = CFG_CONTROL_MODE;
+	TxData[1] = 0x00;
+	TxData[2] = 0x00;
+	TxData[3] = 0x00;
+	TxData[4] = controlMode;
+	TxData[5] = 0x00;
+	TxData[6] = 0x00;
+	TxData[7] = 0x00;
+	CAN1_Tx(TxData,8,id);
+	HAL_Delay(100);
+
+
+	/* MODE_DRIVE */
+	class  = 0x0B;
+	type   = CAN_MESSAGETYPE_COMMAND;
+	id = (class << 7) | (device << 3) | (type);
+
+	TxData[0] = CMD_MODE;
+	TxData[1] = 0x00;
+	TxData[2] = mode;
+	TxData[3] = 0x00;
+	CAN1_Tx(TxData,4,id);
+	HAL_Delay(100);
+
+
+	/* STATE_STARTED */
+	class  = 0x0B;
+	type   = CAN_MESSAGETYPE_COMMAND;
+	id = (class << 7) | (device << 3) | (type);
+
+	TxData[0] = CMD_DRIVE_STATE;
+	TxData[1] = 0x00;
+	TxData[2] = driveState;
+	TxData[3] = 0x00;
+	CAN1_Tx(TxData,4,id);
+	HAL_Delay(100);
+
 }
 
 
