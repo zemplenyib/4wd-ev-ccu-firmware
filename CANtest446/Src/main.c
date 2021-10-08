@@ -155,6 +155,7 @@ uint8_t TxData[8];
 uint8_t tmp[4];
 float iref;
 float vref;
+int16_t angleRef;
 
 /*-----	Memory constants -----------------------------------------------------*/
 
@@ -180,6 +181,7 @@ void UpdateOperModeLEDs(void);
 /* My code from here */
 void CAN1_Tx(uint8_t *data, uint8_t DLC, uint16_t ID);
 void ConfigureWheelDrive(uint16_t wheel, uint16_t controlMode, uint16_t mode, uint16_t driveState);
+void SendWheelReferenceMsg(uint8_t deviceID, float iref, float vref);
 
 
 /* USER CODE END PFP */
@@ -277,29 +279,46 @@ int main(void)
 	CAN1_Tx(TxData, 2, id);
 	HAL_Delay(3000);
 
-	ConfigureWheelDrive(0x01, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED);
-	ConfigureWheelDrive(0x02, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED);
+	/* Steering servo DISCOVER */
+	class = 0x0D;
+	device = 0x01;
+	type = CAN_MESSAGETYPE_COMMAND;
+    id = (class << 7) | (device << 3) | (type);
+	TxData[0] = 0x90;
+	TxData[1] = 0x00;
+	CAN1_Tx(TxData,2,id);
+	HAL_Delay(1000);
 
 
-	/* Reference message */
-	class  = 0x0B;
-	type   = CAN_MESSAGETYPE_REFERENCE;
+	/* Steering servo CMD_MODE */
+	class = 0x0D;
+	device = 0x01;
+	type = CAN_MESSAGETYPE_COMMAND;
+    id = (class << 7) | (device << 3) | (type);
+	TxData[0] = 0xBB;
+	TxData[1] = 0x0B;
+	CAN1_Tx(TxData,2,id);
+	HAL_Delay(2000);
 
-	iref = 1;
-	vref = 200;
+	/* Steering servo CONF_NULLPOINT */
+	class = 0x0D;
+	device = 0x01;
+	type = CAN_MESSAGETYPE_CONFIG;
+    id = (class << 7) | (device << 3) | (type);
+    TxData[0] = 0xCC;
+    TxData[1] = 0x00;
+    TxData[2] = 0x00;
+    TxData[3] = 0x00;
+    TxData[4] = 0x00;
+    //CAN1_Tx(TxData,5,id); // MODE_START utan mukodik csak
+    HAL_Delay(1000);
 
-	memcpy((void*)tmp, (unsigned char *) (&iref), 4);
-	TxData[0] = tmp[0];
-	TxData[1] = tmp[1];
-	TxData[2] = tmp[2];
-	TxData[3] = tmp[3];
-	memcpy((void*)tmp, (unsigned char *) (&vref), 4);
-	TxData[4] = tmp[0];
-	TxData[5] = tmp[1];
-	TxData[6] = tmp[2];
-	TxData[7] = tmp[3];
+	//ConfigureWheelDrive(0x01, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED);
+	//ConfigureWheelDrive(0x02, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED);
+	//ConfigureWheelDrive(0x03, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED);
+	//ConfigureWheelDrive(0x04, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED);
 
-
+	angleRef = 90;
 
   /* USER CODE END 2 */
 
@@ -314,14 +333,19 @@ int main(void)
 	/* My code from here */
 
 	/* Velocity Reference */
-	device = 0x01;
-	id = (class << 7) | (device << 3) | (type);
-	CAN1_Tx(TxData,8,id);
-	HAL_Delay(50);
+	//SendWheelReferenceMsg(0x01, 0, 200);
+	//SendWheelReferenceMsg(0x02, 0, 200);
+	//SendWheelReferenceMsg(0x03, 0, 200);
+	//SendWheelReferenceMsg(0x04, 0, 200);
 
-	device = 0x02;
-	id = (class << 7) | (device << 3) | (type);
-	CAN1_Tx(TxData,8,id);
+	/* Servo Reference */
+	class = 0x0D;
+	device = 0x01;
+	type = CAN_MESSAGETYPE_REFERENCE;
+    id = (class << 7) | (device << 3) | (type);
+    TxData[1] = angleRef;
+	TxData[0] = (angleRef>>8);
+	CAN1_Tx(TxData, 2, id);
 	HAL_Delay(50);
 
 	HAL_GPIO_TogglePin(GPIOC, LED1);
@@ -1147,7 +1171,7 @@ void ConfigureWheelDrive(uint16_t wheel, uint16_t controlMode, uint16_t mode, ui
 	TxData[0] = CMD_DISCOVER;
 	TxData[1] = 0x00;
 	CAN1_Tx(TxData,2,id);
-	HAL_Delay(100);
+	HAL_Delay(10);
 
 	/* CFG_CONTROL_MODE */
 	type   = CAN_MESSAGETYPE_CONFIG;
@@ -1162,7 +1186,7 @@ void ConfigureWheelDrive(uint16_t wheel, uint16_t controlMode, uint16_t mode, ui
 	TxData[6] = 0x00;
 	TxData[7] = 0x00;
 	CAN1_Tx(TxData,8,id);
-	HAL_Delay(100);
+	HAL_Delay(10);
 
 
 	/* MODE_DRIVE */
@@ -1175,7 +1199,7 @@ void ConfigureWheelDrive(uint16_t wheel, uint16_t controlMode, uint16_t mode, ui
 	TxData[2] = mode;
 	TxData[3] = 0x00;
 	CAN1_Tx(TxData,4,id);
-	HAL_Delay(100);
+	HAL_Delay(10);
 
 
 	/* STATE_STARTED */
@@ -1188,8 +1212,30 @@ void ConfigureWheelDrive(uint16_t wheel, uint16_t controlMode, uint16_t mode, ui
 	TxData[2] = driveState;
 	TxData[3] = 0x00;
 	CAN1_Tx(TxData,4,id);
-	HAL_Delay(100);
+	HAL_Delay(10);
+}
 
+void SendWheelReferenceMsg(uint8_t deviceID, float iref, float vref){
+	class  = 0x0B;
+	type   = CAN_MESSAGETYPE_REFERENCE;
+
+	/* FR reference */
+	device = deviceID;
+	id = (class << 7) | (device << 3) | (type);
+
+	memcpy((void*)tmp, (unsigned char *) (&iref), 4);
+	TxData[0] = tmp[0];
+	TxData[1] = tmp[1];
+	TxData[2] = tmp[2];
+	TxData[3] = tmp[3];
+	memcpy((void*)tmp, (unsigned char *) (&vref), 4);
+	TxData[4] = tmp[0];
+	TxData[5] = tmp[1];
+	TxData[6] = tmp[2];
+	TxData[7] = tmp[3];
+
+	CAN1_Tx(TxData,8,id);
+	HAL_Delay(10);	// max 180 ms 2 ref jel kozott
 }
 
 
