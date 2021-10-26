@@ -27,6 +27,7 @@
 #include "adc1_itinj.h"
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 /* USER CODE END Includes */
 
@@ -92,6 +93,11 @@
 #define CONTROL_TORQUE 0x01
 #define CONTROL_VELOCITY 0x02
 
+
+/* Steering Servo Communication */
+#define SV_MODE_START 0x0B
+#define SV_MODE_IDLE 0xB0
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -153,9 +159,8 @@ uint16_t type;
 uint16_t id;
 uint8_t TxData[8];
 uint8_t tmp[4];
-float iref;
-float vref;
-int16_t angleRef;
+float iRef;
+float vRef;
 
 /*-----	Memory constants -----------------------------------------------------*/
 
@@ -181,7 +186,11 @@ void UpdateOperModeLEDs(void);
 /* My code from here */
 void CAN1_Tx(uint8_t *data, uint8_t DLC, uint16_t ID);
 void ConfigureWheelDrive(uint16_t wheel, uint16_t controlMode, uint16_t mode, uint16_t driveState);
-void SendWheelReferenceMsg(uint8_t deviceID, float iref, float vref);
+void ConfigureSteeringServo(uint8_t mode);
+void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float vRef);
+void SendServoReferenceMsg(float angleRef);
+void Ackermann(float vRef, double angleActual);
+
 
 
 /* USER CODE END PFP */
@@ -279,26 +288,7 @@ int main(void)
 	CAN1_Tx(TxData, 2, id);
 	HAL_Delay(3000);
 
-	/* Steering servo DISCOVER */
-	class = 0x0D;
-	device = 0x01;
-	type = CAN_MESSAGETYPE_COMMAND;
-    id = (class << 7) | (device << 3) | (type);
-	TxData[0] = 0x90;
-	TxData[1] = 0x00;
-	CAN1_Tx(TxData,2,id);
-	HAL_Delay(1000);
 
-
-	/* Steering servo CMD_MODE */
-	class = 0x0D;
-	device = 0x01;
-	type = CAN_MESSAGETYPE_COMMAND;
-    id = (class << 7) | (device << 3) | (type);
-	TxData[0] = 0xBB;
-	TxData[1] = 0x0B;
-	CAN1_Tx(TxData,2,id);
-	HAL_Delay(2000);
 
 	/* Steering servo CONF_NULLPOINT */
 	class = 0x0D;
@@ -311,14 +301,15 @@ int main(void)
     TxData[3] = 0x00;
     TxData[4] = 0x00;
     //CAN1_Tx(TxData,5,id); // MODE_START utan mukodik csak
-    HAL_Delay(1000);
+    //HAL_Delay(1000);
 
 	//ConfigureWheelDrive(0x01, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED);
 	//ConfigureWheelDrive(0x02, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED);
 	//ConfigureWheelDrive(0x03, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED);
 	//ConfigureWheelDrive(0x04, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED);
 
-	angleRef = 90;
+    ConfigureSteeringServo(SV_MODE_START);
+
 
   /* USER CODE END 2 */
 
@@ -338,18 +329,12 @@ int main(void)
 	//SendWheelReferenceMsg(0x03, 0, 200);
 	//SendWheelReferenceMsg(0x04, 0, 200);
 
-	/* Servo Reference */
-	class = 0x0D;
-	device = 0x01;
-	type = CAN_MESSAGETYPE_REFERENCE;
-    id = (class << 7) | (device << 3) | (type);
-    TxData[1] = angleRef;
-	TxData[0] = (angleRef>>8);
-	CAN1_Tx(TxData, 2, id);
-	HAL_Delay(50);
+	SendServoReferenceMsg(0);
+	HAL_Delay(2000);
+
 
 	HAL_GPIO_TogglePin(GPIOC, LED1);
-
+	HAL_Delay(10);
 
     /* USER CODE END WHILE */
 
@@ -1215,7 +1200,31 @@ void ConfigureWheelDrive(uint16_t wheel, uint16_t controlMode, uint16_t mode, ui
 	HAL_Delay(10);
 }
 
-void SendWheelReferenceMsg(uint8_t deviceID, float iref, float vref){
+void ConfigureSteeringServo(uint8_t mode){
+
+	/* Steering servo DISCOVER */
+	class = 0x0D;
+	device = 0x01;
+	type = CAN_MESSAGETYPE_COMMAND;
+	id = (class << 7) | (device << 3) | (type);
+	TxData[0] = 0x90;
+	TxData[1] = 0x00;
+	CAN1_Tx(TxData,2,id);
+	HAL_Delay(500);
+
+
+	/* Steering servo CMD_MODE */
+	class = 0x0D;
+	device = 0x01;
+	type = CAN_MESSAGETYPE_COMMAND;
+	id = (class << 7) | (device << 3) | (type);
+	TxData[0] = 0xBB;
+	TxData[1] = mode;
+	CAN1_Tx(TxData,2,id);
+	HAL_Delay(4000);
+}
+
+void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float vRef){
 	class  = 0x0B;
 	type   = CAN_MESSAGETYPE_REFERENCE;
 
@@ -1223,12 +1232,12 @@ void SendWheelReferenceMsg(uint8_t deviceID, float iref, float vref){
 	device = deviceID;
 	id = (class << 7) | (device << 3) | (type);
 
-	memcpy((void*)tmp, (unsigned char *) (&iref), 4);
+	memcpy((void*)tmp, (unsigned char *) (&iRef), 4);
 	TxData[0] = tmp[0];
 	TxData[1] = tmp[1];
 	TxData[2] = tmp[2];
 	TxData[3] = tmp[3];
-	memcpy((void*)tmp, (unsigned char *) (&vref), 4);
+	memcpy((void*)tmp, (unsigned char *) (&vRef), 4);
 	TxData[4] = tmp[0];
 	TxData[5] = tmp[1];
 	TxData[6] = tmp[2];
@@ -1237,6 +1246,53 @@ void SendWheelReferenceMsg(uint8_t deviceID, float iref, float vref){
 	CAN1_Tx(TxData,8,id);
 	HAL_Delay(10);	// max 180 ms 2 ref jel kozott
 }
+
+void SendServoReferenceMsg(float angleRef){
+
+	/* Servo Reference */
+	class = 0x0D;
+	device = 0x01;
+	type = CAN_MESSAGETYPE_REFERENCE;
+	id = (class << 7) | (device << 3) | (type);
+
+	int16_t ref = round(angleRef/0.0219);
+	TxData[0] = ref;
+	TxData[1] = (ref >> 8);
+	CAN1_Tx(TxData, 2, id);
+}
+
+void Ackermann(float vRef, double angleActual){
+	float L, b, B, R;
+	double alpha, beta, gamma = angleActual;
+	float frRef, flRef, rlRef, rrRef;
+	float Rfr, Rfl, Rrl, Rrr;
+
+	L = 0.56; //[m]
+	b = 0.33; //[m]
+	B = 0.5;  //[m]
+
+	alpha = -1.542*0.00005* pow(gamma,3) - 0.0001613*pow(gamma,2) + 0.4268*gamma - 0.03554;
+	R = L/(tan(alpha))-b/2;
+	beta = atan(L/(R-B/2));
+
+
+
+	Rfr = L/sin(beta);
+	Rfl = L/sin(alpha);
+	Rrl = R+B/2;
+	Rrr = R-B/2;
+
+	frRef = Rfr/R*vRef;
+	flRef = Rfl/R*vRef;
+	rlRef = Rrl/R*vRef;
+	rrRef = Rrr/R*vRef;
+
+	SendWheelReferenceMsg(0x01, 0, frRef);
+	SendWheelReferenceMsg(0x02, 0, flRef);
+	SendWheelReferenceMsg(0x03, 0, rlRef);
+	SendWheelReferenceMsg(0x04, 0, rrRef);
+}
+
 
 
 /* USER CODE END 4 */
