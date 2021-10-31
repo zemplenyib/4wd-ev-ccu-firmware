@@ -202,9 +202,6 @@ struct Flag flag;
 struct Reference ref;
 struct Measurement meas;
 
-float servoRef[5] = {10,-20,20,-15,0};
-int k = 0;
-
 
 /*-----	Memory constants -----------------------------------------------------*/
 
@@ -233,7 +230,7 @@ void CAN1_Tx(uint8_t *data, uint8_t DLC, uint16_t ID);
 void ConfigureWheelDrive(uint16_t wheel, uint16_t controlMode, uint16_t mode, uint16_t driveState);
 void ConfigureSteeringServo(uint8_t mode);
 void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float vRef);
-void SendServoReferenceMsg(float angleRef);
+void SendServoReferenceMsg();
 void ConfigureServoNullpoint();
 void Ackermann();
 void DiscoverUnits();
@@ -1327,7 +1324,7 @@ void ConfigureSteeringServo(uint8_t mode){
 	TxData[1] = mode;
 	CAN1_Tx(TxData,2,CANid(0x0D,0x01,CAN_MESSAGETYPE_COMMAND));
 	HAL_Delay(3000);
-	SendServoReferenceMsg(0);
+	SendServoReferenceMsg();
 	HAL_Delay(1000);
 }
 
@@ -1341,8 +1338,8 @@ void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float vRef){
 	CAN1_Tx(TxData,8,CANid(0x0B,deviceID,CAN_MESSAGETYPE_REFERENCE));
 }
 
-void SendServoReferenceMsg(float angleRef){
-	TxData[0] = ref;
+void SendServoReferenceMsg(){
+	TxData[0] = round(ref.steeringAngle/0.0219);
 	TxData[1] = (ref >> 8);
 	CAN1_Tx(TxData, 2, CANid(0x0D,0x01,CAN_MESSAGETYPE_REFERENCE));
 }
@@ -1422,7 +1419,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   // Check which version of the timer triggered this callback
   if (htim == &htim10)
   {
-	SendServoReferenceMsg(ref.steeringAngle);
+	SendServoReferenceMsg();
 	Ackermann();
   }
 }
