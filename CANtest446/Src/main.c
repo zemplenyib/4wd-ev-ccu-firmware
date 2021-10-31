@@ -63,6 +63,18 @@
 #define	CAN_RXID_OPMR	0x623			// CAN Arb. ID for Receiving Op.Mode
 
 /* My code from here */
+#define CAN_RXID_RESP_SERVO 	0x689
+#define CAN_RXID_RESP_WHEEL1	0x589
+#define CAN_RXID_RESP_WHEEL2	0x591
+#define CAN_RXID_RESP_WHEEL3	0x599
+#define CAN_RXID_RESP_WHEEL4	0x5A1
+#define CAN_RXID_STATUS_POWER	0x70C
+#define CAN_RXID_MEAS_WHEEL1	0x58B
+#define CAN_RXID_MEAS_WHEEL2	0x593
+#define CAN_RXID_MEAS_WHEEL3	0x59B
+#define CAN_RXID_MEAS_WHEEL4	0x5A3
+
+
 #define LED1 GPIO_PIN_8
 #define LED2 GPIO_PIN_6
 #define LED3 GPIO_PIN_2
@@ -160,21 +172,35 @@ float vRef;
 
 struct Flag{
 	uint16_t DSS : 1;
-	uint16_t DFR : 1;
-	uint16_t DFL : 1;
-	uint16_t DRL : 1;
-	uint16_t DRR : 1;
+	uint16_t DW1 : 1;
+	uint16_t DW2 : 1;
+	uint16_t DW3 : 1;
+	uint16_t DW4 : 1;
 	uint16_t LV  : 2;
 	uint16_t HV  : 2;
 };
-struct Flag flag;
-
-struct Ref{
+struct Reference{
 	float current;
 	float velocity;
 	float steeringAngle;
 };
-struct Ref ref;
+
+struct Measurement {
+	float currentW1;
+	float currentW2;
+	float currentW3;
+	float currentW4;
+	float velocityW1;
+	float velocityW2;
+	float velocityW3;
+	float velocityW4;
+	int16_t angleSS;
+
+};
+
+struct Flag flag;
+struct Reference ref;
+struct Measurement meas;
 
 float servoRef[5] = {10,-20,20,-15,0};
 int k = 0;
@@ -209,9 +235,9 @@ void ConfigureSteeringServo(uint8_t mode);
 void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float vRef);
 void SendServoReferenceMsg(float angleRef);
 void ConfigureServoNullpoint();
-void Ackermann(float vRef, double angleActual);
+void Ackermann(double angleActual);
 void DiscoverUnits();
-uint16_t CANid(uint16_t class, uint16_t device, uint16_t type);
+uint32_t CANid(uint16_t class, uint16_t device, uint16_t type);
 
 
 
@@ -308,7 +334,7 @@ int main(void)
 			/* Turn on VSRV */
 			TxData[0] = CMD_VSRV;
 			TxData[1] = VSRV_ON;
-			CAN1_Tx(TxData,CANid(0x0E, 0x01, 0x0));
+			CAN1_Tx(TxData, 2, CANid(0x0E, 0x01, 0x0));
 			HAL_Delay(1500);
 
 			/* Turn on HVDC */
@@ -331,13 +357,13 @@ int main(void)
 
 /*---------------------DELETE AFTER DEBUG----------------------------------------------------------------------------------------------------- */
 			flag.DSS = 1;
-			flag.DFR = 1;
-			flag.DFL = 1;
-			flag.DRL = 1;
-			flag.DRR = 1;
+			flag.DW1 = 1;
+			flag.DW2 = 1;
+			flag.DW3 = 1;
+			flag.DW4 = 1;
 /*---------------------DELETE AFTER DEBUG----------------------------------------------------------------------------------------------------- */
 
-			if (flag.DSS && flag.DFR && flag.DFL && flag.DRL && flag.DRR) activeState = START3;
+			if (flag.DSS && flag.DW1 && flag.DW2 && flag.DW3 && flag.DW4) activeState = START3;
 			else activeState = ERROR;
 			break;
 
@@ -355,6 +381,8 @@ int main(void)
 
 		case DRIVE:
 
+			ref.velocity = 2;
+			ref.steeringAngle = 5;
 			// Start timer for periodic reference messages
 			HAL_TIM_Base_Start_IT(&htim10);
 			HAL_GPIO_TogglePin(GPIOC, LED1);
@@ -1065,26 +1093,30 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
       {
 		switch (RxHeader.StdId)
 	      {
-			case CANid(0x0D,0x01,0x01):
-					flag.DSS = 1;
+			case CAN_RXID_RESP_SERVO:
+				flag.DSS = 1;
 				break;
-			case CANid(0x0B,0x00,0x01):
-					flag.DFR = 1;
+			case CAN_RXID_RESP_WHEEL1:
+				flag.DW1 = 1;
 				break;
-			case CANid(0x0B,0x01,0x01):
-					flag.DFL = 1;
+			case CAN_RXID_RESP_WHEEL2:
+				flag.DW2 = 1;
 				break;
-			case CANid(0x0B,0x02,0x01):
-					flag.DRL = 1;
+			case CAN_RXID_RESP_WHEEL3:
+				flag.DW3 = 1;
 				break;
-			case CANid(0x0B,0x03,0x01):
-					flag.DRR = 1;
+			case CAN_RXID_RESP_WHEEL4:
+				flag.DW4 = 1;
 				break;
-			case CANid(0x0E,0x01,0x04):
-					if (RxHeader.DLC == 3){
-						flag.LV = RxData[1];
-						flag.HV = RxData[2];
+			case CAN_RXID_STATUS_POWER:
+				if (RxHeader.DLC == 3){
+					flag.LV = RxData[1];
+					flag.HV = RxData[2];
 					}
+				break;
+			case CAN_RXID_MEAS_WHEEL1:
+				if (RxHeader.DLC == 8){
+				}
 				break;
 	  		case CAN_RXID_REM1:
 	  	  		if (RxHeader.DLC == 2)
@@ -1277,6 +1309,9 @@ void ConfigureSteeringServo(uint8_t mode){
 
 void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float vRef){
 	uint8_t tmp[4];
+	float D = 0.077;
+	float nRef = vRef/(D/2)*M_PI; //[ rev/sec]
+
 	memcpy((void*)tmp, (unsigned char *) (&iRef), 4);
 	TxData[0] = tmp[0];
 	TxData[1] = tmp[1];
@@ -1288,13 +1323,14 @@ void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float vRef){
 	TxData[6] = tmp[2];
 	TxData[7] = tmp[3];
 
+	//memcpy((void*)&TxData[0], (unsigned char *) (&iRef), 4);
+	//memcpy((void*)&TxData[4], (unsigned char *) (&vRef), 4);
+
 	CAN1_Tx(TxData,8,CANid(0x0B,deviceID,CAN_MESSAGETYPE_REFERENCE));
 	HAL_Delay(10);	// max 180 ms 2 ref jel kozott
 }
 
 void SendServoReferenceMsg(float angleRef){
-
-	/* Servo Reference */
 	int16_t ref = round(angleRef/0.0219);
 	TxData[0] = ref;
 	TxData[1] = (ref >> 8);
@@ -1312,8 +1348,8 @@ void ConfigureServoNullpoint(){
 	HAL_Delay(1000);
 }
 
-void Ackermann(float vRef, double angleActual){
-	float L, b, B, R, D;
+void Ackermann(double angleActual){
+	float L, b, B, R;
 	double alpha, beta, gamma = angleActual;
 	float frRef, flRef, rlRef, rrRef;
 	float Rfr, Rfl, Rrl, Rrr;
@@ -1321,7 +1357,6 @@ void Ackermann(float vRef, double angleActual){
 	L = 0.56;  //[m]
 	b = 0.33;  //[m]
 	B = 0.5;   //[m]
-	D = 0.077; //[m]
 
 	alpha = -1.542*0.00005* pow(gamma,3) - 0.0001613*pow(gamma,2) + 0.4268*gamma - 0.03554;
 	R = L/(tan(alpha))-b/2;
@@ -1332,10 +1367,10 @@ void Ackermann(float vRef, double angleActual){
 	Rrl = R+B/2;
 	Rrr = R-B/2;
 
-	frRef = Rfr/R*M_PI*vRef/(D/2);
-	flRef = Rfl/R*M_PI*vRef/(D/2);
-	rlRef = Rrl/R*M_PI*vRef/(D/2);
-	rrRef = Rrr/R*M_PI*vRef/(D/2);
+	frRef = Rfr/R*ref.velocity;
+	flRef = Rfl/R*ref.velocity;
+	rlRef = Rrl/R*ref.velocity;
+	rrRef = Rrr/R*ref.velocity;
 
 	SendWheelReferenceMsg(0x01, 0, frRef);
 	SendWheelReferenceMsg(0x02, 0, flRef);
@@ -1366,8 +1401,9 @@ void DiscoverUnits(){
 	HAL_Delay(10);
 }
 
-uint16_t CANid(uint16_t class, uint16_t device, uint16_t type){
-	return ((class << 7) | (device << 3) | (type));
+uint32_t CANid(uint16_t class, uint16_t device, uint16_t type){
+	uint32_t id = ((class << 7) | (device << 3) | (type));
+	return id;
 }
 
 // Timer IT Callback
@@ -1377,10 +1413,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   if (htim == &htim10)
   {
 	SendServoReferenceMsg(ref.steeringAngle);
-	SendWheelReferenceMsg(0x00, ref.current, ref.velocity);
-	SendWheelReferenceMsg(0x01, ref.current, ref.velocity);
-	SendWheelReferenceMsg(0x02, ref.current, ref.velocity);
-	SendWheelReferenceMsg(0x03, ref.current, ref.velocity);
+	SendWheelReferenceMsg(0x01, 0, 2.0);
+	//Ackermann(0);
   }
 }
 
