@@ -1,4 +1,4 @@
-Src/usart3_itcbuf.o: ../Src/usart3_itcbuf.c ../Inc/main.h \
+Src/usart2_itcbuf.o: ../Src/usart2_itcbuf.c ../Inc/main.h \
  ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal.h \
  ../Inc/stm32f4xx_hal_conf.h \
  ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_rcc.h \

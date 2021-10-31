@@ -32,7 +32,7 @@
 
 /* External variables --------------------------------------------------------*/
 
-extern UART_HandleTypeDef huart3;
+extern UART_HandleTypeDef huart2;
 
 /* Private variables ---------------------------------------------------------*/
 
@@ -60,7 +60,7 @@ volatile uint32_t TxRdy = 0;		// Transmit Ready
   */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-	if (huart->Instance == USART3)
+	if (huart->Instance == USART2)
 	  {
 		// New data in the RxBuf + RxIpnt position
 		RxCnt++;
@@ -98,7 +98,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
   */
  void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
-	if (huart->Instance == USART3)
+	if (huart->Instance == USART2)
 	  {
 		// Transmission of 1 character is completed
 		TxCnt--;
@@ -125,7 +125,7 @@ void StartUARTCommunication()
 	RxOpnt = 0;
 	RxCnt = 0;
 	RxRdy = 0;
-	HAL_UART_Receive_IT(&huart3,RxBuf,1);
+	HAL_UART_Receive_IT(&huart2,RxBuf,1);
 	TxIpnt = 0;
 	TxOpnt = 0;
 	TxCnt = 0;
@@ -165,7 +165,7 @@ uint8_t GetcRxData()
 			// Restarting receive process
 			RxIpnt++;
 			if (RxIpnt >= RXBUF_SIZE) RxIpnt = 0;
-			HAL_UART_Receive_IT(&huart3,RxBuf + RxIpnt,1);
+			HAL_UART_Receive_IT(&huart2,RxBuf + RxIpnt,1);
 		  }
 		RxCnt--;
 	    if (!prim) __enable_irq();
@@ -193,7 +193,7 @@ uint32_t PutcTxData(uint8_t data)
 		if (TxCnt == 1)
 		  {
 			// Starting Transmit process
-			HAL_UART_Transmit_IT(&huart3,TxBuf + TxOpnt,1);
+			HAL_UART_Transmit_IT(&huart2,TxBuf + TxOpnt,1);
 		  }
 		if (!prim) __enable_irq();
 		return(SUCCESS);

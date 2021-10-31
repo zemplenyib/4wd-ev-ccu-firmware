@@ -108,8 +108,8 @@
 
 
 /* Steering Servo Communication */
-#define SV_MODE_START 0x0B
-#define SV_MODE_IDLE 0xB0
+#define SERVO_MODE_START 0x0B
+#define SERVO_MODE_IDLE 0xB0
 
 /* USER CODE END PD */
 
@@ -166,10 +166,15 @@ CAN_RxHeaderTypeDef   RxHeader;
 uint8_t               TxData[8];
 uint8_t               RxData[8];
 uint32_t              TxMailbox;
+uint8_t 			  RxDataUART;
 
 uint8_t TxData[8];
 float iRef;
 float vRef;
+
+enum state{START1, START2, START3, DRIVE, ERR};
+enum state activeState = START1;
+enum state prevState = START1;
 
 struct Flag{
 	uint16_t DSS : 1;
@@ -205,7 +210,7 @@ struct Measurement meas;
 
 /*-----	Memory constants -----------------------------------------------------*/
 
-static const char greetMsg[] = "\r\n\n-- SensAct4 --\n\r";
+static const char greetMsg[] = "\r\n\n-- 4WD e-Vehicle --\n\r";
 
 /* USER CODE END PV */
 
@@ -234,6 +239,7 @@ void SendServoReferenceMsg();
 void ConfigureServoNullpoint();
 void Ackermann();
 void DiscoverUnits();
+void StateTransition();
 uint32_t CANid(uint16_t class, uint16_t device, uint16_t type);
 
 
@@ -254,14 +260,12 @@ int main(void)
   /* USER CODE BEGIN 1 */
   int status;
   uint16_t value;
-  char message[16];
+  char message[18];
   uint8_t rch;
   int ch;
   uint16_t uarg;
   uint16_t timer_val;
 
-  enum state{START1, START2, START3, DRIVE, ERROR};
-  enum state activeState = START1;
 
 
   /* USER CODE END 1 */
@@ -306,10 +310,7 @@ int main(void)
 
 	StartUARTCommunication();
 	PutsTxData((uint8_t*)greetMsg,strlen(greetMsg));
-
-	sprintf(message,"$M%02x\r\n",operMode);
-	PutsTxData((uint8_t *)message,strlen(message));
-	sprintf(message,"$I\r\n");
+	sprintf(message,"State: START1 \n\r");
 	PutsTxData((uint8_t *)message,strlen(message));
 
 	HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
@@ -326,6 +327,9 @@ int main(void)
 
 
 	/* My code from here */
+	if (prevState != activeState) StateTransition();
+	prevState = activeState;
+
 	switch (activeState){
 		case START1:
 			/* Turn on VSRV */
@@ -345,7 +349,7 @@ int main(void)
 			flag.HV = 1;
 /*---------------------DELETE AFTER DEBUG----------------------------------------------------------------------------------------------------- */
 			if (flag.LV == 1 && flag.HV == 1) activeState = START2;
-			else activeState = ERROR;
+			else activeState = ERR;
 			break;
 
 		case START2:
@@ -361,11 +365,11 @@ int main(void)
 /*---------------------DELETE AFTER DEBUG----------------------------------------------------------------------------------------------------- */
 
 			if (flag.DSS && flag.DW1 && flag.DW2 && flag.DW3 && flag.DW4) activeState = START3;
-			else activeState = ERROR;
+			else activeState = ERR;
 			break;
 
 		case START3:
-			ConfigureSteeringServo(SV_MODE_START);
+			ConfigureSteeringServo(SERVO_MODE_START);
 
 			ConfigureWheelDrive(0x01, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED); /* FR */
 			ConfigureWheelDrive(0x02, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED); /* FL */
@@ -383,10 +387,9 @@ int main(void)
 			// Start timer for periodic reference messages
 			HAL_TIM_Base_Start_IT(&htim10);
 			HAL_GPIO_TogglePin(GPIOC, LED1);
-
 			break;
-		case ERROR:
-			ConfigureSteeringServo(SV_MODE_IDLE);
+		case ERR:
+			ConfigureSteeringServo(SERVO_MODE_IDLE);
 
 			ConfigureWheelDrive(0x01, CONTROL_VELOCITY, MODE_DRIVE, STATE_STOPPED); /* FR */
 			ConfigureWheelDrive(0x02, CONTROL_VELOCITY, MODE_DRIVE, STATE_STOPPED); /* FL */
@@ -746,7 +749,7 @@ static void MX_TIM10_Init(void)
   htim10.Instance = TIM10;
   htim10.Init.Prescaler = 18000-1;
   htim10.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim10.Init.Period = 20000-1;
+  htim10.Init.Period = 500-1;
   htim10.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim10.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim10) != HAL_OK)
@@ -1136,7 +1139,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 				}
 				break;
 			case CAN_RXID_MEAS_SERVO:
-				if (RxHeader.DCL == 6){
+				if (RxHeader.DLC == 6){
 					memcpy((void*)&meas.angleSS, (uint16_t*)&RxData[0],2);
 				}
 	  		case CAN_RXID_REM1:
@@ -1339,8 +1342,9 @@ void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float vRef){
 }
 
 void SendServoReferenceMsg(){
-	TxData[0] = round(ref.steeringAngle/0.0219);
-	TxData[1] = (ref >> 8);
+	uint16_t ang = round(ref.steeringAngle/0.0219);
+	TxData[0] = ang;
+	TxData[1] = (ang >> 8);
 	CAN1_Tx(TxData, 2, CANid(0x0D,0x01,CAN_MESSAGETYPE_REFERENCE));
 }
 
@@ -1411,6 +1415,27 @@ void DiscoverUnits(){
 uint32_t CANid(uint16_t class, uint16_t device, uint16_t type){
 	uint32_t id = ((class << 7) | (device << 3) | (type));
 	return id;
+}
+
+void StateTransition(){
+	char message[16];
+
+	if (activeState == ERR){
+		sprintf(message,"State: ERROR \n\r");
+		PutsTxData((uint8_t *)message,strlen(message));
+	}
+	if (prevState == START1 && activeState == START2){
+		sprintf(message,"State: START2 \n\r");
+		PutsTxData((uint8_t *)message,strlen(message));
+	}
+	if (prevState == START2 && activeState == START3){
+		sprintf(message,"State: START3 \n\r");
+		PutsTxData((uint8_t *)message,strlen(message));
+	}
+	if (prevState == START3 && activeState == DRIVE){
+		sprintf(message,"State: DRIVE \n\r");
+		PutsTxData((uint8_t *)message,strlen(message));
+	}
 }
 
 // Timer IT Callback
