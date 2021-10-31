@@ -112,6 +112,7 @@ CAN_HandleTypeDef hcan1;
 
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim10;
 
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
@@ -153,14 +154,26 @@ uint8_t               TxData[8];
 uint8_t               RxData[8];
 uint32_t              TxMailbox;
 
-uint16_t class;
-uint16_t device;
-uint16_t type;
-uint16_t id;
 uint8_t TxData[8];
 uint8_t tmp[4];
 float iRef;
 float vRef;
+
+struct Flag{
+	uint16_t DSS : 1;
+	uint16_t DFR : 1;
+	uint16_t DFL : 1;
+	uint16_t DRL : 1;
+	uint16_t DRR : 1;
+	uint16_t LV  : 2;
+	uint16_t HV  : 2;
+};
+struct Flag flag;
+
+
+float servoRef[5] = {10,-20,20,-15,0};
+int k = 0;
+
 
 /*-----	Memory constants -----------------------------------------------------*/
 
@@ -177,6 +190,7 @@ static void MX_USART2_UART_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM10_Init(void);
 /* USER CODE BEGIN PFP */
 
 void Operate3colorLED(int led, uint16_t intens);
@@ -189,7 +203,10 @@ void ConfigureWheelDrive(uint16_t wheel, uint16_t controlMode, uint16_t mode, ui
 void ConfigureSteeringServo(uint8_t mode);
 void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float vRef);
 void SendServoReferenceMsg(float angleRef);
+void ConfigureServoNullpoint();
 void Ackermann(float vRef, double angleActual);
+void DiscoverUnits();
+uint16_t CANid(uint16_t class, uint16_t device, uint16_t type);
 
 
 
@@ -213,7 +230,10 @@ int main(void)
   uint8_t rch;
   int ch;
   uint16_t uarg;
+  uint16_t timer_val;
 
+  enum state{START1, START2, START3, DRIVE, ERROR};
+  enum state activeState = START1;
 
 
   /* USER CODE END 1 */
@@ -242,7 +262,9 @@ int main(void)
   MX_TIM1_Init();
   MX_USART3_UART_Init();
   MX_TIM3_Init();
+  MX_TIM10_Init();
   /* USER CODE BEGIN 2 */
+
 
 	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
 	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
@@ -264,53 +286,6 @@ int main(void)
 
 	HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
 
-	/* My code from here */
-
-	/* Turn on VSRV */
-	class = 0x0E;
-    device = 0x01;
-    type = 0x0;
-    id = (class << 7) | (device << 3) | (type); //id = 0x708;
-
-    TxData[0] = CMD_VSRV;
-    TxData[1] = VSRV_ON;
-	CAN1_Tx(TxData, 2, id);
-	HAL_Delay(1500);
-
-    /* Turn on HVDC */
-	class = 0x0E;
-    device = 0x01;
-    type = 0x0;
-    id = (class << 7) | (device << 3) | (type); //id = 0x708;
-
-    TxData[0] = CMD_HVDC;
-    TxData[1] = HVDC_ON;
-	CAN1_Tx(TxData, 2, id);
-	HAL_Delay(3000);
-
-
-
-	/* Steering servo CONF_NULLPOINT */
-	class = 0x0D;
-	device = 0x01;
-	type = CAN_MESSAGETYPE_CONFIG;
-    id = (class << 7) | (device << 3) | (type);
-    TxData[0] = 0xCC;
-    TxData[1] = 0x00;
-    TxData[2] = 0x00;
-    TxData[3] = 0x00;
-    TxData[4] = 0x00;
-    //CAN1_Tx(TxData,5,id); // MODE_START utan mukodik csak
-    //HAL_Delay(1000);
-
-	//ConfigureWheelDrive(0x01, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED);
-	//ConfigureWheelDrive(0x02, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED);
-	//ConfigureWheelDrive(0x03, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED);
-	//ConfigureWheelDrive(0x04, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED);
-
-    ConfigureSteeringServo(SV_MODE_START);
-
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -318,20 +293,73 @@ int main(void)
   while (1)
   {
 	// Waiting for Control Tick signal
-	while (ctrlTick == 0) continue;
-	ctrlTick = 0;
+	//while (ctrlTick == 0) continue;
+	//ctrlTick = 0;
+
 
 	/* My code from here */
+	switch (activeState){
+		case START1:
+			/* Turn on VSRV */
+			TxData[0] = CMD_VSRV;
+			TxData[1] = VSRV_ON;
+			CAN1_Tx(TxData,CANid(0x0E, 0x01, 0x0));
+			HAL_Delay(1500);
+
+			/* Turn on HVDC */
+			TxData[0] = CMD_HVDC;
+			TxData[1] = HVDC_ON;
+			CAN1_Tx(TxData, 2, CANid(0x0E,0x01,0x00));
+			HAL_Delay(1500);
+
+			if (flag.LV == 1 && flag.HV == 1) activeState = START2;
+			else activeState = ERROR;
+			break;
+
+		case START2:
+			DiscoverUnits();
+			HAL_Delay(1000);
+
+			if (flag.DSS && flag.DFR && flag.DFL && flag.DRL && flag.DRR) activeState = START3;
+			else activeState = ERROR;
+			break;
+
+		case START3:
+			ConfigureSteeringServo(SV_MODE_START);
+
+			ConfigureWheelDrive(0x01, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED); /* FR */
+			ConfigureWheelDrive(0x02, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED); /* FL */
+			ConfigureWheelDrive(0x03, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED); /* RL */
+			ConfigureWheelDrive(0x04, CONTROL_VELOCITY, MODE_DRIVE, STATE_STARTED); /* RR */
+
+			// check if measurement data is coming in
+			activeState = DRIVE;
+			break;
+
+		case DRIVE:
+
+			// Start timer for periodic reference messages
+			HAL_TIM_Base_Start_IT(&htim10);
+
+			break;
+		case ERROR:
+			ConfigureSteeringServo(SV_MODE_IDLE);
+
+			ConfigureWheelDrive(0x01, CONTROL_VELOCITY, MODE_DRIVE, STATE_STOPPED); /* FR */
+			ConfigureWheelDrive(0x02, CONTROL_VELOCITY, MODE_DRIVE, STATE_STOPPED); /* FL */
+			ConfigureWheelDrive(0x03, CONTROL_VELOCITY, MODE_DRIVE, STATE_STOPPED); /* RL */
+			ConfigureWheelDrive(0x04, CONTROL_VELOCITY, MODE_DRIVE, STATE_STOPPED); /* RR */
+
+			HAL_TIM_Base_Stop_IT(&htim10);
+			break;
+
+	}
 
 	/* Velocity Reference */
-	//SendWheelReferenceMsg(0x01, 0, 200);
-	//SendWheelReferenceMsg(0x02, 0, 200);
-	//SendWheelReferenceMsg(0x03, 0, 200);
-	//SendWheelReferenceMsg(0x04, 0, 200);
-
-	SendServoReferenceMsg(0);
-	HAL_Delay(2000);
-
+	SendWheelReferenceMsg(0x01, 0, 100);
+	SendWheelReferenceMsg(0x02, 0, 100);
+	SendWheelReferenceMsg(0x03, 0, 100);
+	SendWheelReferenceMsg(0x04, 0, 100);
 
 	HAL_GPIO_TogglePin(GPIOC, LED1);
 	HAL_Delay(10);
@@ -658,6 +686,37 @@ static void MX_TIM3_Init(void)
 }
 
 /**
+  * @brief TIM10 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM10_Init(void)
+{
+
+  /* USER CODE BEGIN TIM10_Init 0 */
+
+  /* USER CODE END TIM10_Init 0 */
+
+  /* USER CODE BEGIN TIM10_Init 1 */
+
+  /* USER CODE END TIM10_Init 1 */
+  htim10.Instance = TIM10;
+  htim10.Init.Prescaler = 18000-1;
+  htim10.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim10.Init.Period = 20000-1;
+  htim10.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim10.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim10) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM10_Init 2 */
+
+  /* USER CODE END TIM10_Init 2 */
+
+}
+
+/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -942,18 +1001,6 @@ void HAL_SYSTICK_Callback(void)
   *                the configuration information for TIM module.
   * @retval None
   */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-	  if (htim->Instance == TIM1)
-	  {
-		ctrlCnt++;
-		if (ctrlCnt >= CTRLLOOP_PER)
-		 {
-			ctrlTick++;
-			ctrlCnt = 0;
-		 }
-	  }
-}
 
 /**
   * @brief  EXTI line detection callback.
@@ -1000,6 +1047,27 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
       {
 		switch (RxHeader.StdId)
 	      {
+			case CANid(0x0D,0x01,0x01):
+					flag.DSS = 1;
+				break;
+			case CANid(0x0B,0x00,0x01):
+					flag.DFR = 1;
+				break;
+			case CANid(0x0B,0x01,0x01):
+					flag.DFL = 1;
+				break;
+			case CANid(0x0B,0x02,0x01):
+					flag.DRL = 1;
+				break;
+			case CANid(0x0B,0x03,0x01):
+					flag.DRR = 1;
+				break;
+			case CANid(0x0E,0x01,0x04):
+					if (RxHeader.DLC == 3){
+						flag.LV = RxData[1];
+						flag.HV = RxData[2];
+					}
+				break;
 	  		case CAN_RXID_REM1:
 	  	  		if (RxHeader.DLC == 2)
 	  	  		  {
@@ -1146,22 +1214,8 @@ void CAN1_Tx(uint8_t *data, uint8_t DLC, uint16_t ID)
 }
 
 void ConfigureWheelDrive(uint16_t wheel, uint16_t controlMode, uint16_t mode, uint16_t driveState){
-	class = 0x0B;
-	device = wheel; /* FR = 0x01, FL = 0x02, RL = 0x03, RR = 0x04 */
-
-	/* CMD discover */
-	type = 0x0;
-	id = (class << 7) | (device << 3) | (type);
-
-	TxData[0] = CMD_DISCOVER;
-	TxData[1] = 0x00;
-	CAN1_Tx(TxData,2,id);
-	HAL_Delay(10);
 
 	/* CFG_CONTROL_MODE */
-	type   = CAN_MESSAGETYPE_CONFIG;
-	id = (class << 7) | (device << 3) | (type);
-
 	TxData[0] = CFG_CONTROL_MODE;
 	TxData[1] = 0x00;
 	TxData[2] = 0x00;
@@ -1170,68 +1224,40 @@ void ConfigureWheelDrive(uint16_t wheel, uint16_t controlMode, uint16_t mode, ui
 	TxData[5] = 0x00;
 	TxData[6] = 0x00;
 	TxData[7] = 0x00;
-	CAN1_Tx(TxData,8,id);
+	CAN1_Tx(TxData,8,CANid(0x0B,wheel,CAN_MESSAGETYPE_CONFIG));
 	HAL_Delay(10);
 
 
 	/* MODE_DRIVE */
-	class  = 0x0B;
-	type   = CAN_MESSAGETYPE_COMMAND;
-	id = (class << 7) | (device << 3) | (type);
-
 	TxData[0] = CMD_MODE;
 	TxData[1] = 0x00;
 	TxData[2] = mode;
 	TxData[3] = 0x00;
-	CAN1_Tx(TxData,4,id);
+	CAN1_Tx(TxData,4,CANid(0x0B,wheel,CAN_MESSAGETYPE_COMMAND));
 	HAL_Delay(10);
 
 
 	/* STATE_STARTED */
-	class  = 0x0B;
-	type   = CAN_MESSAGETYPE_COMMAND;
-	id = (class << 7) | (device << 3) | (type);
-
 	TxData[0] = CMD_DRIVE_STATE;
 	TxData[1] = 0x00;
 	TxData[2] = driveState;
 	TxData[3] = 0x00;
-	CAN1_Tx(TxData,4,id);
+	CAN1_Tx(TxData,4,CANid(0x0B,wheel,CAN_MESSAGETYPE_COMMAND));
 	HAL_Delay(10);
 }
 
 void ConfigureSteeringServo(uint8_t mode){
 
-	/* Steering servo DISCOVER */
-	class = 0x0D;
-	device = 0x01;
-	type = CAN_MESSAGETYPE_COMMAND;
-	id = (class << 7) | (device << 3) | (type);
-	TxData[0] = 0x90;
-	TxData[1] = 0x00;
-	CAN1_Tx(TxData,2,id);
-	HAL_Delay(500);
-
-
 	/* Steering servo CMD_MODE */
-	class = 0x0D;
-	device = 0x01;
-	type = CAN_MESSAGETYPE_COMMAND;
-	id = (class << 7) | (device << 3) | (type);
 	TxData[0] = 0xBB;
 	TxData[1] = mode;
-	CAN1_Tx(TxData,2,id);
-	HAL_Delay(4000);
+	CAN1_Tx(TxData,2,CANid(0x0D,0x01,CAN_MESSAGETYPE_COMMAND));
+	HAL_Delay(3000);
+	SendServoReferenceMsg(0);
+	HAL_Delay(1000);
 }
 
 void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float vRef){
-	class  = 0x0B;
-	type   = CAN_MESSAGETYPE_REFERENCE;
-
-	/* FR reference */
-	device = deviceID;
-	id = (class << 7) | (device << 3) | (type);
-
 	memcpy((void*)tmp, (unsigned char *) (&iRef), 4);
 	TxData[0] = tmp[0];
 	TxData[1] = tmp[1];
@@ -1243,22 +1269,28 @@ void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float vRef){
 	TxData[6] = tmp[2];
 	TxData[7] = tmp[3];
 
-	CAN1_Tx(TxData,8,id);
+	CAN1_Tx(TxData,8,CANid(0x0B,deviceID,CAN_MESSAGETYPE_REFERENCE));
 	HAL_Delay(10);	// max 180 ms 2 ref jel kozott
 }
 
 void SendServoReferenceMsg(float angleRef){
 
 	/* Servo Reference */
-	class = 0x0D;
-	device = 0x01;
-	type = CAN_MESSAGETYPE_REFERENCE;
-	id = (class << 7) | (device << 3) | (type);
-
 	int16_t ref = round(angleRef/0.0219);
 	TxData[0] = ref;
 	TxData[1] = (ref >> 8);
-	CAN1_Tx(TxData, 2, id);
+	CAN1_Tx(TxData, 2, CANid(0x0D,0x01,CAN_MESSAGETYPE_REFERENCE));
+}
+
+void ConfigureServoNullpoint(){
+	// MODE_START utan mukodik csak
+	TxData[0] = 0xCC;
+	TxData[1] = 0x00;
+	TxData[2] = 0x00;
+	TxData[3] = 0x00;
+	TxData[4] = 0x00;
+	CAN1_Tx(TxData,5,CANid(0x0D,0x01,CAN_MESSAGETYPE_CONFIG));
+	HAL_Delay(1000);
 }
 
 void Ackermann(float vRef, double angleActual){
@@ -1267,25 +1299,24 @@ void Ackermann(float vRef, double angleActual){
 	float frRef, flRef, rlRef, rrRef;
 	float Rfr, Rfl, Rrl, Rrr;
 
-	L = 0.56; //[m]
-	b = 0.33; //[m]
-	B = 0.5;  //[m]
+	L = 0.56;  //[m]
+	b = 0.33;  //[m]
+	B = 0.5;   //[m]
+	D = 0.077; //[m]
 
 	alpha = -1.542*0.00005* pow(gamma,3) - 0.0001613*pow(gamma,2) + 0.4268*gamma - 0.03554;
 	R = L/(tan(alpha))-b/2;
 	beta = atan(L/(R-B/2));
-
-
 
 	Rfr = L/sin(beta);
 	Rfl = L/sin(alpha);
 	Rrl = R+B/2;
 	Rrr = R-B/2;
 
-	frRef = Rfr/R*vRef;
-	flRef = Rfl/R*vRef;
-	rlRef = Rrl/R*vRef;
-	rrRef = Rrr/R*vRef;
+	frRef = Rfr/R*M_PI*vRef/(D/2);
+	flRef = Rfl/R*M_PI*vRef/(D/2);
+	rlRef = Rrl/R*M_PI*vRef/(D/2);
+	rrRef = Rrr/R*M_PI*vRef/(D/2);
 
 	SendWheelReferenceMsg(0x01, 0, frRef);
 	SendWheelReferenceMsg(0x02, 0, flRef);
@@ -1293,6 +1324,45 @@ void Ackermann(float vRef, double angleActual){
 	SendWheelReferenceMsg(0x04, 0, rrRef);
 }
 
+void DiscoverUnits(){
+
+	/* DISCOVER Steering servo */
+	TxData[0] = 0x90;
+	TxData[1] = 0x00;
+	CAN1_Tx(TxData,2,CANid(0x0D,0x01,CAN_MESSAGETYPE_COMMAND));
+	HAL_Delay(10);
+
+	/* Discover wheel drivers */
+	TxData[0] = CMD_DISCOVER;
+	TxData[1] = 0x00;
+
+	/* FR = 0x01, FL = 0x02, RL = 0x03, RR = 0x04 */
+	CAN1_Tx(TxData,2,CANid(0x0B,0x01,0x00));
+	HAL_Delay(10);
+	CAN1_Tx(TxData,2,CANid(0x0B,0x02,0x00));
+	HAL_Delay(10);
+	CAN1_Tx(TxData,2,CANid(0x0B,0x03,0x00));
+	HAL_Delay(10);
+	CAN1_Tx(TxData,2,CANid(0x0B,0x04,0x00));
+	HAL_Delay(10);
+}
+
+uint16_t CANid(uint16_t class, uint16_t device, uint16_t type){
+	return ((class << 7) | (device << 3) | (type));
+}
+
+// Timer IT Callback
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  // Check which version of the timer triggered this callback
+  if (htim == &htim10)
+  {
+	SendServoReferenceMsg(servoRef[k]);
+	k++;
+	if (k>4) k=0;
+
+  }
+}
 
 
 /* USER CODE END 4 */
