@@ -155,7 +155,6 @@ uint8_t               RxData[8];
 uint32_t              TxMailbox;
 
 uint8_t TxData[8];
-uint8_t tmp[4];
 float iRef;
 float vRef;
 
@@ -170,6 +169,12 @@ struct Flag{
 };
 struct Flag flag;
 
+struct Ref{
+	float current;
+	float velocity;
+	float steeringAngle;
+};
+struct Ref ref;
 
 float servoRef[5] = {10,-20,20,-15,0};
 int k = 0;
@@ -312,6 +317,10 @@ int main(void)
 			CAN1_Tx(TxData, 2, CANid(0x0E,0x01,0x00));
 			HAL_Delay(1500);
 
+/*---------------------DELETE AFTER DEBUG----------------------------------------------------------------------------------------------------- */
+			flag.LV = 1;
+			flag.HV = 1;
+/*---------------------DELETE AFTER DEBUG----------------------------------------------------------------------------------------------------- */
 			if (flag.LV == 1 && flag.HV == 1) activeState = START2;
 			else activeState = ERROR;
 			break;
@@ -319,6 +328,14 @@ int main(void)
 		case START2:
 			DiscoverUnits();
 			HAL_Delay(1000);
+
+/*---------------------DELETE AFTER DEBUG----------------------------------------------------------------------------------------------------- */
+			flag.DSS = 1;
+			flag.DFR = 1;
+			flag.DFL = 1;
+			flag.DRL = 1;
+			flag.DRR = 1;
+/*---------------------DELETE AFTER DEBUG----------------------------------------------------------------------------------------------------- */
 
 			if (flag.DSS && flag.DFR && flag.DFL && flag.DRL && flag.DRR) activeState = START3;
 			else activeState = ERROR;
@@ -340,6 +357,7 @@ int main(void)
 
 			// Start timer for periodic reference messages
 			HAL_TIM_Base_Start_IT(&htim10);
+			HAL_GPIO_TogglePin(GPIOC, LED1);
 
 			break;
 		case ERROR:
@@ -356,13 +374,13 @@ int main(void)
 	}
 
 	/* Velocity Reference */
-	SendWheelReferenceMsg(0x01, 0, 100);
-	SendWheelReferenceMsg(0x02, 0, 100);
-	SendWheelReferenceMsg(0x03, 0, 100);
-	SendWheelReferenceMsg(0x04, 0, 100);
+//	SendWheelReferenceMsg(0x01, 0, 100);
+//	SendWheelReferenceMsg(0x02, 0, 100);
+//	SendWheelReferenceMsg(0x03, 0, 100);
+//	SendWheelReferenceMsg(0x04, 0, 100);
 
-	HAL_GPIO_TogglePin(GPIOC, LED1);
-	HAL_Delay(10);
+//	HAL_GPIO_TogglePin(GPIOC, LED1);
+//	HAL_Delay(10);
 
     /* USER CODE END WHILE */
 
@@ -1258,6 +1276,7 @@ void ConfigureSteeringServo(uint8_t mode){
 }
 
 void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float vRef){
+	uint8_t tmp[4];
 	memcpy((void*)tmp, (unsigned char *) (&iRef), 4);
 	TxData[0] = tmp[0];
 	TxData[1] = tmp[1];
@@ -1294,7 +1313,7 @@ void ConfigureServoNullpoint(){
 }
 
 void Ackermann(float vRef, double angleActual){
-	float L, b, B, R;
+	float L, b, B, R, D;
 	double alpha, beta, gamma = angleActual;
 	float frRef, flRef, rlRef, rrRef;
 	float Rfr, Rfl, Rrl, Rrr;
@@ -1357,10 +1376,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   // Check which version of the timer triggered this callback
   if (htim == &htim10)
   {
-	SendServoReferenceMsg(servoRef[k]);
-	k++;
-	if (k>4) k=0;
-
+	SendServoReferenceMsg(ref.steeringAngle);
+	SendWheelReferenceMsg(0x00, ref.current, ref.velocity);
+	SendWheelReferenceMsg(0x01, ref.current, ref.velocity);
+	SendWheelReferenceMsg(0x02, ref.current, ref.velocity);
+	SendWheelReferenceMsg(0x03, ref.current, ref.velocity);
   }
 }
 
