@@ -73,6 +73,7 @@
 #define CAN_RXID_MEAS_WHEEL2	0x593
 #define CAN_RXID_MEAS_WHEEL3	0x59B
 #define CAN_RXID_MEAS_WHEEL4	0x5A3
+#define CAN_RXID_MEAS_SERVO		0x68B
 
 
 #define LED1 GPIO_PIN_8
@@ -195,7 +196,6 @@ struct Measurement {
 	float velocityW3;
 	float velocityW4;
 	int16_t angleSS;
-
 };
 
 struct Flag flag;
@@ -235,7 +235,7 @@ void ConfigureSteeringServo(uint8_t mode);
 void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float vRef);
 void SendServoReferenceMsg(float angleRef);
 void ConfigureServoNullpoint();
-void Ackermann(double angleActual);
+void Ackermann();
 void DiscoverUnits();
 uint32_t CANid(uint16_t class, uint16_t device, uint16_t type);
 
@@ -1116,8 +1116,32 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 				break;
 			case CAN_RXID_MEAS_WHEEL1:
 				if (RxHeader.DLC == 8){
+					memcpy((void*)&meas.currentW1, (float*)&RxData[0],4);
+					memcpy((void*)&meas.velocityW1, (float*)&RxData[4],4);
 				}
 				break;
+			case CAN_RXID_MEAS_WHEEL2:
+				if (RxHeader.DLC == 8){
+					memcpy((void*)&meas.currentW2, (float*)&RxData[0],4);
+					memcpy((void*)&meas.velocityW2, (float*)&RxData[4],4);
+				}
+				break;
+			case CAN_RXID_MEAS_WHEEL3:
+				if (RxHeader.DLC == 8){
+					memcpy((void*)&meas.currentW3, (float*)&RxData[0],4);
+					memcpy((void*)&meas.velocityW3, (float*)&RxData[4],4);
+				}
+				break;
+			case CAN_RXID_MEAS_WHEEL4:
+				if (RxHeader.DLC == 8){
+					memcpy((void*)&meas.currentW4, (float*)&RxData[0],4);
+					memcpy((void*)&meas.velocityW4, (float*)&RxData[4],4);
+				}
+				break;
+			case CAN_RXID_MEAS_SERVO:
+				if (RxHeader.DCL == 6){
+					memcpy((void*)&meas.angleSS, (uint16_t*)&RxData[0],2);
+				}
 	  		case CAN_RXID_REM1:
 	  	  		if (RxHeader.DLC == 2)
 	  	  		  {
@@ -1308,30 +1332,16 @@ void ConfigureSteeringServo(uint8_t mode){
 }
 
 void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float vRef){
-	uint8_t tmp[4];
-	float D = 0.077;
-	float nRef = vRef/(D/2)*M_PI; //[ rev/sec]
+	// max 180 ms 2 ref jel kozott
+	float nRef = vRef/((float)0.077/2)*M_PI; // D = 0.077[ rev/sec]
 
-	memcpy((void*)tmp, (unsigned char *) (&iRef), 4);
-	TxData[0] = tmp[0];
-	TxData[1] = tmp[1];
-	TxData[2] = tmp[2];
-	TxData[3] = tmp[3];
-	memcpy((void*)tmp, (unsigned char *) (&vRef), 4);
-	TxData[4] = tmp[0];
-	TxData[5] = tmp[1];
-	TxData[6] = tmp[2];
-	TxData[7] = tmp[3];
-
-	//memcpy((void*)&TxData[0], (unsigned char *) (&iRef), 4);
-	//memcpy((void*)&TxData[4], (unsigned char *) (&vRef), 4);
+	memcpy((void*)&TxData[0], (unsigned char *) (&iRef), 4);
+	memcpy((void*)&TxData[4], (unsigned char *) (&nRef), 4);
 
 	CAN1_Tx(TxData,8,CANid(0x0B,deviceID,CAN_MESSAGETYPE_REFERENCE));
-	HAL_Delay(10);	// max 180 ms 2 ref jel kozott
 }
 
 void SendServoReferenceMsg(float angleRef){
-	int16_t ref = round(angleRef/0.0219);
 	TxData[0] = ref;
 	TxData[1] = (ref >> 8);
 	CAN1_Tx(TxData, 2, CANid(0x0D,0x01,CAN_MESSAGETYPE_REFERENCE));
@@ -1348,9 +1358,9 @@ void ConfigureServoNullpoint(){
 	HAL_Delay(1000);
 }
 
-void Ackermann(double angleActual){
+void Ackermann(){
 	float L, b, B, R;
-	double alpha, beta, gamma = angleActual;
+	double alpha, beta, gamma = (double)meas.angleSS;
 	float frRef, flRef, rlRef, rrRef;
 	float Rfr, Rfl, Rrl, Rrr;
 
@@ -1372,10 +1382,10 @@ void Ackermann(double angleActual){
 	rlRef = Rrl/R*ref.velocity;
 	rrRef = Rrr/R*ref.velocity;
 
-	SendWheelReferenceMsg(0x01, 0, frRef);
-	SendWheelReferenceMsg(0x02, 0, flRef);
-	SendWheelReferenceMsg(0x03, 0, rlRef);
-	SendWheelReferenceMsg(0x04, 0, rrRef);
+	SendWheelReferenceMsg(0x01, 0, frRef); HAL_Delay(1);
+	SendWheelReferenceMsg(0x02, 0, flRef); HAL_Delay(1);
+	SendWheelReferenceMsg(0x03, 0, rlRef); HAL_Delay(1);
+	SendWheelReferenceMsg(0x04, 0, rrRef); HAL_Delay(1);
 }
 
 void DiscoverUnits(){
@@ -1413,8 +1423,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   if (htim == &htim10)
   {
 	SendServoReferenceMsg(ref.steeringAngle);
-	SendWheelReferenceMsg(0x01, 0, 2.0);
-	//Ackermann(0);
+	Ackermann();
   }
 }
 
