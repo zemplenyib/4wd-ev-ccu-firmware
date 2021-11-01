@@ -76,10 +76,15 @@
 #define CAN_RXID_MEAS_SERVO		0x68B
 
 
-#define LED1 GPIO_PIN_8
-#define LED2 GPIO_PIN_6
-#define LED3 GPIO_PIN_2
-#define LED4 GPIO_PIN_1
+#define USR_LED1_PIN GPIO_PIN_8
+#define USR_LED2_PIN GPIO_PIN_6
+#define USR_LED3_PIN GPIO_PIN_2
+#define USR_LED4_PIN GPIO_PIN_1
+
+#define USR_LED1_PORT GPIOC
+#define USR_LED2_PORT GPIOC
+#define USR_LED3_PORT GPIOB
+#define USR_LED4_PORT GPIOB
 
 #define CAN_MESSAGETYPE_COMMAND 0x00
 #define CAN_MESSAGETYPE_CONFIG 0x05
@@ -240,6 +245,7 @@ void ConfigureServoNullpoint();
 void Ackermann();
 void DiscoverUnits();
 void StateTransition();
+void UART2_RX();
 uint32_t CANid(uint16_t class, uint16_t device, uint16_t type);
 
 
@@ -315,6 +321,21 @@ int main(void)
 
 	HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
 
+
+	ref.velocity = 0;
+	ref.current = 0;
+	ref.steeringAngle = 0;
+
+	meas.angleSS = 0;
+	meas.currentW1 = 0;
+	meas.currentW2 = 0;
+	meas.currentW3 = 0;
+	meas.currentW4 = 0;
+	meas.velocityW1 = 0;
+	meas.velocityW2 = 0;
+	meas.velocityW3 = 0;
+	meas.velocityW4 = 0;
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -381,12 +402,9 @@ int main(void)
 			break;
 
 		case DRIVE:
-
-			ref.velocity = 2;
-			ref.steeringAngle = 5;
 			// Start timer for periodic reference messages
 			HAL_TIM_Base_Start_IT(&htim10);
-			HAL_GPIO_TogglePin(GPIOC, LED1);
+
 			break;
 		case ERR:
 			ConfigureSteeringServo(SERVO_MODE_IDLE);
@@ -400,16 +418,6 @@ int main(void)
 			break;
 
 	}
-
-	/* Velocity Reference */
-//	SendWheelReferenceMsg(0x01, 0, 100);
-//	SendWheelReferenceMsg(0x02, 0, 100);
-//	SendWheelReferenceMsg(0x03, 0, 100);
-//	SendWheelReferenceMsg(0x04, 0, 100);
-
-//	HAL_GPIO_TogglePin(GPIOC, LED1);
-//	HAL_Delay(10);
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -1198,8 +1206,9 @@ void COMerrorSignal()
   */
 void CMDerrorSignal()
 {
-	HAL_GPIO_WritePin(USR_LED6_GPIO_Port,USR_LED6_Pin,GPIO_PIN_SET);
-	led6signCnt = ERRSIGN_PER;
+	char message[19];
+	sprintf(message,"Invalid command\r\n");
+	PutsTxData((uint8_t *)message,strlen(message));
 }
 
 /**
@@ -1276,13 +1285,13 @@ void CAN1_Tx(uint8_t *data, uint8_t DLC, uint16_t ID)
 	TxHeader.StdId = ID;
 
 	if (HAL_CAN_GetTxMailboxesFreeLevel(&hcan1) > 0){
-		//HAL_GPIO_WritePin(GPIOB, LED3, GPIO_PIN_RESET);
+		//HAL_GPIO_WritePin(GPIOB, USR_LED3_PIN, GPIO_PIN_RESET);
 		if(HAL_CAN_AddTxMessage(&hcan1,&TxHeader,data,&TxMailbox) != HAL_OK)
 		{
 			Error_Handler();
 		}
 		else {
-			HAL_GPIO_TogglePin(GPIOB, LED3);//, GPIO_PIN_SET);
+			HAL_GPIO_TogglePin(USR_LED4_PORT, USR_LED4_PIN);
 		}
 	}
 }
@@ -1418,7 +1427,7 @@ uint32_t CANid(uint16_t class, uint16_t device, uint16_t type){
 }
 
 void StateTransition(){
-	char message[16];
+	char message[20];
 
 	if (activeState == ERR){
 		sprintf(message,"State: ERROR \n\r");
@@ -1438,6 +1447,82 @@ void StateTransition(){
 	}
 }
 
+void UART2_RX(){
+    uint8_t rch;
+	int status;
+	char message[20];
+	float val;
+
+	while (TestRxData() == SET)
+	  {
+		rch = GetcRxData();
+		if (inmsgPnt > 0)
+		  {
+			if (rch == CR_C)
+			  {
+				// A complete command is in the buffer
+				inmsgBuf[inmsgPnt] = NUL_C;
+				// Processing the received command
+				switch (inmsgBuf[1])
+				  {
+					case 'V':	// Velocity value received
+						status = sscanf ((char *)(inmsgBuf+2),"%f",&val);
+						//sprintf(message,"DL: %i\r\n",status);
+						//PutsTxData((uint8_t *)message,strlen(message));
+						if (fabs(val) < 3){
+							ref.velocity = val;
+							sprintf(message,"V=%f\r\n",val);
+							PutsTxData((uint8_t *)message,strlen(message));
+						}
+						else {
+							CMDerrorSignal();
+						}
+						break;
+
+					case 'S':	// Steering angle value received
+						status = sscanf ((char *)(inmsgBuf+2),"%f",&val);
+						//sprintf(message,"DL: %i\r\n",status);
+						//PutsTxData((uint8_t *)message,strlen(message));
+						if (fabs(val) < 50){
+							ref.steeringAngle = val;
+							sprintf(message,"S=%f\r\n",val);
+							PutsTxData((uint8_t *)message,strlen(message));
+						}
+						else {
+							CMDerrorSignal();
+						}
+						break;
+					default:
+						CMDerrorSignal();
+				  }
+				inmsgPnt = 0;
+			  }
+			else
+			  {
+				// Character belonging to Command
+				inmsgBuf[inmsgPnt] = rch;
+				inmsgPnt++;
+				if (inmsgPnt >= INMSG_SIZE)
+				  {
+					// Invalid command: too long
+					inmsgPnt = 0;
+				  }
+			  }
+		  }
+		else
+		  { // Waiting for Command Start character
+			if (rch == '$')
+			  {
+				// Command Start character found
+				inmsgBuf[0] = rch;
+				inmsgPnt++;
+			  }
+			// else: done nothing - data is dropped
+		  }
+	  }
+}
+
+
 // Timer IT Callback
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
@@ -1446,6 +1531,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   {
 	SendServoReferenceMsg();
 	Ackermann();
+	UART2_RX();
   }
 }
 

@@ -1,8 +1,0 @@
-usart3_itcbuf.c:61:6:HAL_UART_RxCpltCallback	8	static
-usart3_itcbuf.c:88:6:HAL_UART_ErrorCallback	8	static
-usart3_itcbuf.c:99:7:HAL_UART_TxCpltCallback	8	static
-usart3_itcbuf.c:122:6:StartUARTCommunication	16	static
-usart3_itcbuf.c:140:10:TestRxData	0	static
-usart3_itcbuf.c:151:9:GetcRxData	16	static,ignoring_inline_asm
-usart3_itcbuf.c:181:10:PutcTxData	8	static,ignoring_inline_asm
-usart3_itcbuf.c:215:10:PutsTxData	16	static
