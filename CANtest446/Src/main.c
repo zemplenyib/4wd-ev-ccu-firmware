@@ -336,6 +336,7 @@ int main(void)
 	meas.velocityW3 = 0;
 	meas.velocityW4 = 0;
 
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -345,7 +346,6 @@ int main(void)
 	// Waiting for Control Tick signal
 	//while (ctrlTick == 0) continue;
 	//ctrlTick = 0;
-
 
 	/* My code from here */
 	if (prevState != activeState) StateTransition();
@@ -757,7 +757,7 @@ static void MX_TIM10_Init(void)
   htim10.Instance = TIM10;
   htim10.Init.Prescaler = 18000-1;
   htim10.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim10.Init.Period = 500-1;
+  htim10.Init.Period = 1000-1;
   htim10.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim10.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim10) != HAL_OK)
@@ -954,7 +954,7 @@ void HAL_SYSTICK_Callback(void)
 				  }
 			  }
 			sprintf(message,"$M%2X\r\n",operMode);
-			PutsTxData((uint8_t *)message,strlen(message));
+//			PutsTxData((uint8_t *)message,strlen(message));
 			SendOperModeToCAN();
 		  }
 		sw1Block--;
@@ -982,7 +982,7 @@ void HAL_SYSTICK_Callback(void)
 				  }
 			  }
 			sprintf(message,"$M%2X\r\n",operMode);
-			PutsTxData((uint8_t *)message,strlen(message));
+//			PutsTxData((uint8_t *)message,strlen(message));
 			SendOperModeToCAN();
 		  }
 		sw2Block--;
@@ -1340,9 +1340,8 @@ void ConfigureSteeringServo(uint8_t mode){
 	HAL_Delay(1000);
 }
 
-void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float vRef){
+void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float nRef){
 	// max 180 ms 2 ref jel kozott
-	float nRef = vRef/((float)0.077/2)*M_PI; // D = 0.077[ rev/sec]
 
 	memcpy((void*)&TxData[0], (unsigned char *) (&iRef), 4);
 	memcpy((void*)&TxData[4], (unsigned char *) (&nRef), 4);
@@ -1351,7 +1350,7 @@ void SendWheelReferenceMsg(uint8_t deviceID, float iRef, float vRef){
 }
 
 void SendServoReferenceMsg(){
-	uint16_t ang = round(ref.steeringAngle/0.0219);
+	int16_t ang = round(ref.steeringAngle/0.0219);
 	TxData[0] = ang;
 	TxData[1] = (ang >> 8);
 	CAN1_Tx(TxData, 2, CANid(0x0D,0x01,CAN_MESSAGETYPE_REFERENCE));
@@ -1370,32 +1369,61 @@ void ConfigureServoNullpoint(){
 
 void Ackermann(){
 	float L, b, B, R;
-	double alpha, beta, gamma = (double)meas.angleSS;
-	float frRef, flRef, rlRef, rrRef;
-	float Rfr, Rfl, Rrl, Rrr;
+	double alpha, beta, gamma = ((double)meas.angleSS*0.0219)/180*M_PI;
+	float vFR, vFL, vRL, vRR;
+	float rFR, rFL, rRL, rRR;
+	float nFR, nFL, nRL, nRR;
 
 	L = 0.56;  //[m]
 	b = 0.33;  //[m]
 	B = 0.5;   //[m]
 
-	alpha = -1.542*0.00005* pow(gamma,3) - 0.0001613*pow(gamma,2) + 0.4268*gamma - 0.03554;
-	R = L/(tan(alpha))-b/2;
-	beta = atan(L/(R-B/2));
+	 if (gamma > 0) {
+	        alpha = -1.542*0.00005*pow(gamma,3) - 0.0001613*pow(gamma,2) + 0.4268*gamma - 0.03554;
+	        beta = atan(L/(1/gamma-b/2));
+	        R = L/(tan(alpha))-b/2;
 
-	Rfr = L/sin(beta);
-	Rfl = L/sin(alpha);
-	Rrl = R+B/2;
-	Rrr = R-B/2;
+	        rFR = (R-B/2)/cos(beta);
+	        rFL = (R+B/2)/cos(alpha);
+	        rRL = R+B/2;
+		    rRR = R-B/2;
+	    }
+	    else if (gamma < 0) {
+	        alpha = -1*atan(L/(1/fabs(gamma)-b/2));
+	        beta = -1*(-1.542*0.00005*pow(fabs(gamma),3) - 0.0001613*pow(fabs(gamma),2) + 0.4268*fabs(gamma) - 0.03554);
+	        R = fabs(L/(tan(fabs(beta)))-b/2);
 
-	frRef = Rfr/R*ref.velocity;
-	flRef = Rfl/R*ref.velocity;
-	rlRef = Rrl/R*ref.velocity;
-	rrRef = Rrr/R*ref.velocity;
+	        rFR = (R+B/2)/cos(beta);
+	        rFL = (R-B/2)/cos(alpha);
+	        rRL = R-B/2;
+		    rRR = R+B/2;
+	    }
+	    else {
+	        rFR = R;
+	        Rfl = R;
+	        rRL = R;
+	        rRR = R;
+	    }
 
-	SendWheelReferenceMsg(0x01, 0, frRef); HAL_Delay(1);
-	SendWheelReferenceMsg(0x02, 0, flRef); HAL_Delay(1);
-	SendWheelReferenceMsg(0x03, 0, rlRef); HAL_Delay(1);
-	SendWheelReferenceMsg(0x04, 0, rrRef); HAL_Delay(1);
+
+
+		vFR = rFR/R*ref.velocity;
+		vFL = rFL/R*ref.velocity;
+		vRL = rRL/R*ref.velocity;
+		vRR = rRR/R*ref.velocity;
+
+
+	    nFR = vFR/((float)0.077/2)/(2*M_PI)*60;
+	    nFL = vFL/((float)0.077/2)/(2*M_PI)*60;
+	    nRL = vRL/((float)0.077/2)/(2*M_PI)*60;
+	    nRR = vRR/((float)0.077/2)/(2*M_PI)*60;
+
+
+	SendWheelReferenceMsg(0x01, 0, vFR); HAL_Delay(1);
+	SendWheelReferenceMsg(0x02, 0, vFL); HAL_Delay(1);
+	SendWheelReferenceMsg(0x03, 0, vRL); HAL_Delay(1);
+	SendWheelReferenceMsg(0x04, 0, vRR); HAL_Delay(1);
+
 }
 
 void DiscoverUnits(){
@@ -1469,12 +1497,13 @@ void UART2_RX(){
 						status = sscanf ((char *)(inmsgBuf+2),"%f",&val);
 						//sprintf(message,"DL: %i\r\n",status);
 						//PutsTxData((uint8_t *)message,strlen(message));
-						if (fabs(val) < 3){
+						if (fabs(val) < 10){
 							ref.velocity = val;
 							sprintf(message,"V=%f\r\n",val);
 							PutsTxData((uint8_t *)message,strlen(message));
 						}
 						else {
+
 							CMDerrorSignal();
 						}
 						break;
